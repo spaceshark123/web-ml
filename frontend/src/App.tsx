@@ -1,5 +1,11 @@
 import { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "./constants";
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  withCredentials: true,
+});
 
 function App() {
   const [email, setEmail] = useState("");
@@ -8,12 +14,12 @@ function App() {
   const [msg, setMsg] = useState("");
 
   const register = async () => {
-    await axios.post("/api/register", { email, password }, { withCredentials: true });
+    await api.post("/register", { email, password });
     setMsg("Registered");
   };
 
   const login = async () => {
-    await axios.post("/api/login", { email, password }, { withCredentials: true });
+    await api.post("/login", { email, password });
     setMsg("Logged in");
   };
 
@@ -21,11 +27,16 @@ function App() {
     if (!file) return;
     const form = new FormData();
     form.append("file", file);
-    const res = await axios.post("/api/upload", form, {
-      withCredentials: true,
+    const res = await api.post("/upload", form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
     setMsg("Uploaded dataset " + res.data.dataset_id);
+  };
+
+  // test backend connection
+  const testConnection = async () => {
+    const res = await api.get("/test");
+    setMsg(res.data);
   };
 
   return (

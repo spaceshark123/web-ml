@@ -38,8 +38,12 @@ class Dataset(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+@app.route('/api/test')
+def test():
+    return "Backend is running! API version."
+
 # ===== Routes =====
-@app.route('/register', methods=['POST'])
+@app.route('/api/register', methods=['POST'])
 def register():
     data = request.json
     if User.query.filter_by(email=data['email']).first():
@@ -49,7 +53,7 @@ def register():
     db.session.commit()
     return jsonify({'msg': 'Registered'}), 201
 
-@app.route('/login', methods=['POST'])
+@app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
     user = User.query.filter_by(email=data['email']).first()
@@ -58,13 +62,13 @@ def login():
     login_user(user)
     return jsonify({'msg': 'Logged in'})
 
-@app.route('/logout')
+@app.route('/api/logout')
 @login_required
 def logout():
     logout_user()
     return jsonify({'msg': 'Logged out'})
 
-@app.route('/upload', methods=['POST'])
+@app.route('/api/upload', methods=['POST'])
 @login_required
 def upload():
     file = request.files.get('file')
@@ -79,7 +83,7 @@ def upload():
     db.session.commit()
     return jsonify({'msg': 'Uploaded', 'dataset_id': ds.id})
 
-@app.route('/train/<int:dataset_id>', methods=['POST'])
+@app.route('/api/train/<int:dataset_id>', methods=['POST'])
 @login_required
 def train(dataset_id):
     ds = Dataset.query.get_or_404(dataset_id)

@@ -24,3 +24,10 @@ dist-ssr
 *.sw?
 
 venv/
+
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+uploads/
+instance/
