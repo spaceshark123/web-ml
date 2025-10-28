@@ -1,0 +1,81 @@
+import { Button } from "./ui/button"
+import {
+	Card,
+	CardAction,
+	CardContent,
+	CardDescription,
+	CardFooter,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card"
+
+interface DatasetCardProps {
+	name: string
+	description: string
+	uploadDate: string
+	fileSize: string
+	rows: number
+	features: number
+	models: number
+}
+
+export function DatasetCard({ name, description, uploadDate, fileSize, rows, features, models }: DatasetCardProps) {
+	return (
+		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+			{/* Header */}
+			<CardHeader>
+				<CardTitle>{name}</CardTitle>
+				<CardDescription>{description}</CardDescription>
+			</CardHeader>
+
+			{/* Dataset Metadata */}
+			<CardContent>
+				<div className="mb-6 space-y-2">
+					<div className="flex justify-between text-sm">
+						<span className="text-gray-600">Uploaded:</span>
+						<span className="text-gray-900">{uploadDate}</span>
+					</div>
+					<div className="flex justify-between text-sm">
+						<span className="text-gray-600">File Size:</span>
+						<span className="text-gray-900">{fileSize}</span>
+					</div>
+				</div>
+
+				{/* Stats */}
+				<div className="grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-gray-200">
+					<div className="text-center">
+						<div className="text-2xl font-bold text-blue-600">{rows}</div>
+						<div className="text-xs text-gray-500 uppercase tracking-wide">Rows</div>
+					</div>
+					<div className="text-center">
+						<div className="text-2xl font-bold text-blue-600">{features}</div>
+						<div className="text-xs text-gray-500 uppercase tracking-wide">Features</div>
+					</div>
+					<div className="text-center">
+						<div className="text-2xl font-bold text-blue-600">{models}</div>
+						<div className="text-xs text-gray-500 uppercase tracking-wide">Models</div>
+					</div>
+				</div>
+
+				{/* Action Buttons */}
+				<div className="space-y-2">
+					<div className="grid grid-cols-2 gap-2">
+						<Button className="bg-blue-600 hover:bg-blue-700 text-white">View</Button>
+						<Button className="bg-green-600 hover:bg-green-700 text-white">Train Model</Button>
+					</div>
+					<div className="grid grid-cols-2 gap-2">
+						<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
+							Create New Model
+						</Button>
+						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50 bg-transparent">
+							Download
+						</Button>
+					</div>
+					<Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700 text-white">
+						Delete
+					</Button>
+				</div>
+			</CardContent>
+		</Card>
+	)
+}

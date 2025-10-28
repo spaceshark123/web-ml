@@ -56,13 +56,14 @@ def register():
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
+    print(data)
     user = User.query.filter_by(email=data['email']).first()
     if not user or not check_password_hash(user.password_hash, data['password']):
         return jsonify({'error': 'Bad credentials'}), 401
     login_user(user)
     return jsonify({'msg': 'Logged in'})
 
-@app.route('/api/logout')
+@app.route('/api/logout', methods=['POST'])
 @login_required
 def logout():
     logout_user()
