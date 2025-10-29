@@ -172,7 +172,31 @@ def upload():
             elif original_ext == '.txt':
                 df = pd.read_csv(path, sep='\t')  # Assuming tab-separated values
             elif original_ext == '.xlsx':
-                df = pd.read_excel(path)
+                try:
+                    import openpyxl
+                    df = pd.read_excel(path, engine='openpyxl')
+                except ImportError:
+                    return jsonify({
+                        'msg': 'Uploaded but could not read file contents',
+                        'dataset': {
+                            'id': ds.id,
+                            'name': filename,
+                            'file_path': path,
+                            'upload_date': ds.created_at.isoformat(),
+                            'error': 'Server missing openpyxl package required for Excel files'
+                        }
+                    })
+                except Exception as excel_error:
+                    return jsonify({
+                        'msg': 'Uploaded but could not read file contents',
+                        'dataset': {
+                            'id': ds.id,
+                            'name': filename,
+                            'file_path': path,
+                            'upload_date': ds.created_at.isoformat(),
+                            'error': f'Error reading Excel file: {str(excel_error)}'
+                        }
+                    })
             else:
                 return jsonify({'error': 'Unsupported file format'}), 400
 
@@ -285,7 +309,19 @@ def get_datasets():
                     elif file_ext == '.txt':
                         df = pd.read_csv(ds.file_path, sep='\t')
                     elif file_ext == '.xlsx':
-                        df = pd.read_excel(ds.file_path)
+                        try:
+                            import openpyxl
+                            df = pd.read_excel(ds.file_path, engine='openpyxl')
+                        except ImportError:
+                            print("openpyxl not installed - required for reading .xlsx files")
+                            dataset_info['error'] = 'Server missing openpyxl package required for Excel files'
+                            result.append(dataset_info)
+                            continue
+                        except Exception as excel_error:
+                            print(f"Error reading Excel file: {str(excel_error)}")
+                            dataset_info['error'] = f'Error reading Excel file: {str(excel_error)}'
+                            result.append(dataset_info)
+                            continue
                     else:
                         print(f"Unsupported file extension: {file_ext}")
                         dataset_info['error'] = 'Unsupported file format'
