@@ -244,7 +244,6 @@ def get_datasets():
         print("\n=== Dataset Request ===")
         print("Received request for /api/datasets")
         print(f"Method: {request.method}")
-        print(f"Headers: {dict(request.headers)}")
         
         if request.method == 'OPTIONS':
             return jsonify({}), 200
