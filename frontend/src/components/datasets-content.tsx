@@ -94,7 +94,7 @@ export function DatasetsContent() {
 		fetchDatasets()
 	}, [])
 	return (
-		<div className="min-h-screen bg-gray-50">
+		<div className="min-h-screen bg-gray-50 relative">
 			{/* Back to Dashboard Link */}
 			<div className="bg-white border-b border-gray-200 px-8 py-4">
 				<Link to="/dashboard" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm">
@@ -146,7 +146,7 @@ export function DatasetsContent() {
 			</div>
 
 			{/* Datasets Grid */}
-			<div className="px-8 py-8">
+			<div className={`${loading ? 'filter blur-sm pointer-events-none select-none' : ''} px-8 py-8`}>
 				{loading ? (
 					<div className="text-center py-12">
 						<p className="text-gray-500">Loading datasets...</p>
@@ -170,22 +170,27 @@ export function DatasetsContent() {
 						) : (
 							datasets.map((dataset) => {
 								const handleDelete = async () => {
+									const ok = window.confirm(`Delete dataset "${dataset.name}"? This will remove the file and cannot be undone.`)
+									if (!ok) return
 									try {
-										const response = await fetch(`http://localhost:5000/api/datasets/${dataset.id}`, {
+										const response = await fetch(`${API_BASE_URL}/datasets/${dataset.id}`, {
 											method: 'DELETE',
 											credentials: 'include',
 										});
 
 										if (!response.ok) {
-											const data = await response.json();
-											throw new Error(data.error || 'Failed to delete dataset');
+											const data = await response.json().catch(() => ({}));
+											const msg = data?.error || 'Failed to delete dataset';
+											console.error('Delete failed', msg)
+											alert(`Failed to delete dataset: ${msg}`)
+											return
 										}
 
 										// Refresh the datasets list
 										await fetchDatasets();
 									} catch (error) {
 										console.error('Error deleting dataset:', error);
-										throw error;
+										alert('Failed to delete dataset. See console for details.')
 									}
 								};
 
@@ -210,6 +215,20 @@ export function DatasetsContent() {
 					</div>
 				)}
 			</div>
+
+			{/* Loading overlay (blurred background visible behind) */}
+			{loading && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+					<div className="backdrop-blur-sm absolute inset-0" aria-hidden="true" />
+					<div className="relative z-10 bg-white/95 dark:bg-slate-800/95 p-6 rounded-lg shadow-lg flex items-center gap-4">
+						<div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+						<div>
+							<div className="font-semibold text-lg">Loading</div>
+							<div className="text-sm text-gray-600">Please wait — fetching datasets.</div>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	)
 }
