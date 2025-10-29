@@ -6,6 +6,8 @@ import { DatasetCard } from "./dataset-card"
 import { Link } from "react-router-dom"
 import { useEffect, useState } from "react"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
+import { API_BASE_URL } from "@/constants"
+import axios from "axios"
 
 interface Dataset {
 	id: number
@@ -18,6 +20,15 @@ interface Dataset {
 	models: number
 	error?: string
 }
+
+const api = axios.create({
+	baseURL: API_BASE_URL,
+	withCredentials: true,
+	headers: {
+		'Content-Type': 'application/json',
+		'Accept': 'application/json',
+	},
+});
 
 export function DatasetsContent() {
 	const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -52,6 +63,30 @@ export function DatasetsContent() {
 			setError(error instanceof Error ? error.message : "Failed to load datasets. Please check if the backend server is running.")
 		} finally {
 			setLoading(false)
+		}
+	}
+
+	const downloadDataset = async (datasetId: number, datasetName: string) => {
+		try {
+			const response = await fetch(`http://localhost:5000/api/download/${datasetId}`, {
+				method: 'GET',
+				credentials: 'include',
+			})
+			if (!response.ok) {
+				throw new Error('Download failed')
+			}
+			const blob = await response.blob()
+			const url = window.URL.createObjectURL(blob)
+			const a = document.createElement('a')
+			a.href = url
+			a.download = datasetName
+			document.body.appendChild(a)
+			a.click()
+			a.remove()
+			window.URL.revokeObjectURL(url)
+		} catch (error) {
+			console.error('Error downloading dataset:', error)
+			alert('Failed to download dataset. Please try again.')
 		}
 	}
 
@@ -167,6 +202,7 @@ export function DatasetsContent() {
 										models={dataset.models || 0}
 										error={dataset.error}
 										onDelete={handleDelete}
+										onDownload={() => downloadDataset(dataset.id, dataset.name)}
 									/>
 								);
 							})
