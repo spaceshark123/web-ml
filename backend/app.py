@@ -364,28 +364,6 @@ def get_datasets():
     except Exception as e:
         print(f"Error in get_datasets: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
-# reset DB/uploads/both - for testing purposes, add fail-safe
-@app.route('/api/reset/<string:thing>', methods=['POST'])
-def reset(thing):
-    key = request.args.get('key')
-    if key != 'supersecretresetkey':
-        return jsonify({'error': 'Unauthorized'}), 401
-    if thing not in ['db', 'uploads', 'both']:
-        return jsonify({'error': 'Invalid reset option. Use "db", "uploads", or "both".'}), 400
-    if thing == 'db' or thing == 'both':
-        db.drop_all()
-        db.create_all()
-    if thing == 'uploads' or thing == 'both':
-        folder = app.config['UPLOAD_FOLDER']
-        for filename in os.listdir(folder):
-            file_path = os.path.join(folder, filename)
-            try:
-                if os.path.isfile(file_path):
-                    os.remove(file_path)
-            except Exception as e:
-                print(f"Error deleting file {file_path}: {str(e)}")
-    return jsonify({'msg': f'Reset {thing} completed'})
 
 from flask import send_from_directory
 
