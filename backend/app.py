@@ -390,6 +390,7 @@ def reset(thing):
     if thing == 'db' or thing == 'both':
         db.drop_all()
         db.create_all()
+        print("Database reset completed")
     if thing == 'uploads' or thing == 'both':
         folder = app.config['UPLOAD_FOLDER']
         for filename in os.listdir(folder):
@@ -399,6 +400,7 @@ def reset(thing):
                     os.remove(file_path)
             except Exception as e:
                 print(f"Error deleting file {file_path}: {str(e)}")
+        print("Uploads folder reset completed")
     return jsonify({'msg': f'Reset {thing} completed'})
 
 @app.route('/api/train/<int:dataset_id>', methods=['POST'])
