@@ -365,6 +365,20 @@ def get_datasets():
         print(f"Error in get_datasets: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+from flask import send_from_directory
+
+# ...existing code...
+
+@app.route('/api/download/<int:dataset_id>', methods=['GET'])
+@login_required
+def download_dataset(dataset_id):
+    ds = Dataset.query.get_or_404(dataset_id)
+    if not ds.file_path or not os.path.exists(ds.file_path):
+        return jsonify({'error': 'File not found'}), 404
+    directory = os.path.dirname(ds.file_path)
+    filename = os.path.basename(ds.file_path)
+    return send_from_directory(directory, filename, as_attachment=True)
+
 @app.route('/api/train/<int:dataset_id>', methods=['POST'])
 @login_required
 def train(dataset_id):

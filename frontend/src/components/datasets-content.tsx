@@ -154,6 +154,30 @@ export function DatasetsContent() {
 									}
 								};
 
+								const handleDownload = async () => {
+									try {
+										const response = await fetch(`http://localhost:5000/api/download/${dataset.id}`, {
+											method: 'GET',
+											credentials: 'include',
+										});
+										if (!response.ok) {
+											const data = await response.json();
+											throw new Error(data.error || 'Failed to download dataset');
+										}
+										const blob = await response.blob();
+										const url = window.URL.createObjectURL(blob);
+										const a = document.createElement('a');
+										a.href = url;
+										a.download = dataset.name;
+										document.body.appendChild(a);
+										a.click();
+										a.remove();
+										window.URL.revokeObjectURL(url);
+									} catch (error) {
+										console.error('Error downloading dataset:', error);
+									}
+								};
+
 								return (
 									<DatasetCard
 										id={dataset.id}
@@ -167,6 +191,7 @@ export function DatasetsContent() {
 										models={dataset.models || 0}
 										error={dataset.error}
 										onDelete={handleDelete}
+										onDownload={handleDownload}
 									/>
 								);
 							})
