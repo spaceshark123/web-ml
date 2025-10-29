@@ -64,7 +64,7 @@ export function Sidebar() {
       </nav>
 
       {/* User section */}
-      <div className="p-4 space-y-3">
+      <div className="p-4 space-y-3 sticky bottom-0">
         <div className="flex items-center gap-2 px-3 py-2">
           <User className="w-4 h-4" />
           <span className="text-sm">{user?.email || "Guest"}</span>

@@ -32,19 +32,23 @@ interface AuthContextType {
 	register: (email: string, password: string) => Promise<boolean>
 	logout: () => void
 	isAuthenticated: boolean
+	isInitialized: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [user, setUser] = useState<User | null>(null)
+	const [initialized, setInitialized] = useState(false);
 
 	useEffect(() => {
 		// Check if user is already logged in (from localStorage)
 		const storedUser = localStorage.getItem("user")
 		if (storedUser) {
+			console.log("Restoring user from localStorage:", storedUser);
 			setUser(JSON.parse(storedUser))
 		}
+		setInitialized(true);
 	}, [])
 
 	const login = async (email: string, password: string): Promise<boolean> => {
@@ -82,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}
 
 	return (
-		<AuthContext.Provider value={{ user, login, register, logout, isAuthenticated: !!user }}>
+		<AuthContext.Provider value={{ user, login, register, logout, isAuthenticated: !!user, isInitialized: initialized }}>
 			{children}
 		</AuthContext.Provider>
 	)

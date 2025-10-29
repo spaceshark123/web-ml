@@ -12,10 +12,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 interface UploadDatasetDialogProps {
+  text?: string
   onUploadSuccess?: () => void
 }
 
-export function UploadDatasetDialog({ onUploadSuccess }: UploadDatasetDialogProps) {
+export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDialogProps) {
   const [open, setOpen] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [customName, setCustomName] = useState("")
@@ -80,7 +81,7 @@ export function UploadDatasetDialog({ onUploadSuccess }: UploadDatasetDialogProp
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-blue-600 hover:bg-blue-700 text-white">Upload New Dataset</Button>
+        <Button className="bg-blue-600 hover:bg-blue-700 text-white">{text ? text : "Upload New Dataset"}</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
