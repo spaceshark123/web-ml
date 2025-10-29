@@ -379,6 +379,36 @@ def download_dataset(dataset_id):
     filename = os.path.basename(ds.file_path)
     return send_from_directory(directory, filename, as_attachment=True)
 
+# Delete dataset (supports OPTIONS for CORS preflight)
+@app.route('/api/datasets/<int:dataset_id>', methods=['DELETE', 'OPTIONS'])
+def delete_dataset(dataset_id):
+    # Allow CORS preflight through
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+
+    # Require authentication for actual DELETE
+    if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        ds = Dataset.query.get_or_404(dataset_id)
+        if ds.user_id != current_user.id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+        # remove file if present
+        try:
+            if ds.file_path and os.path.exists(ds.file_path):
+                os.remove(ds.file_path)
+        except Exception as e:
+            print(f"Failed to remove file {ds.file_path}: {str(e)}")
+
+        db.session.delete(ds)
+        db.session.commit()
+        return jsonify({'msg': 'Deleted'}), 200
+    except Exception as e:
+        print(f"Error deleting dataset {dataset_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 # reset DB/uploads/both - for testing purposes, add fail-safe
 @app.route('/api/reset/<string:thing>', methods=['POST'])
 def reset(thing):
