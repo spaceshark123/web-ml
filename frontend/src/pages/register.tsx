@@ -11,30 +11,24 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [error, setError] = useState("")
   const { register } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError("")
 
     if (password !== confirmPassword) {
-      alert("Passwords do not match")
+      setError("Passwords do not match")
       return
     }
 
-    // TODO: Replace with actual Flask API call
-    // Example: const response = await fetch('http://localhost:5000/api/register', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ email, password })
-    // })
-
-    const success = await register(email, password)
-
-    if (success) {
+    try {
+      await register(email, password)
       navigate("/dashboard")
-    } else {
-      alert("Registration failed")
+    } catch (err: any) {
+      setError(err.message || 'Registration failed. Please try again.')
     }
   }
 
@@ -87,6 +81,10 @@ export default function RegisterPage() {
               required
             />
           </div>
+
+          {error && (
+            <div className="text-red-500 text-sm">{error}</div>
+          )}
 
           <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 text-lg">
             Register

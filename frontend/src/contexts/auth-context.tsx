@@ -5,7 +5,22 @@ import axios from "axios";
 const api = axios.create({
 	baseURL: API_BASE_URL,
 	withCredentials: true,
+	headers: {
+		'Content-Type': 'application/json',
+		'Accept': 'application/json',
+	},
 });
+
+// Add request interceptor to handle errors
+api.interceptors.response.use(
+	(response) => response,
+	(error) => {
+		if (error.response?.status === 401) {
+			localStorage.removeItem("user");
+		}
+		return Promise.reject(error);
+	}
+);
 
 interface User {
 	email: string
@@ -33,29 +48,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	}, [])
 
 	const login = async (email: string, password: string): Promise<boolean> => {
-		const response = await api.post('/login', { email, password })
-		if (response.status === 200) {
-			const userData = { email }
-			setUser(userData)
-			localStorage.setItem("user", JSON.stringify(userData))
-			return true
+		try {
+			const response = await api.post('/login', { email, password });
+			const userData = response.data.user;
+			setUser(userData);
+			localStorage.setItem("user", JSON.stringify(userData));
+			return true;
+		} catch (error: any) {
+			console.error("Login failed:", error);
+			// Throw the error with the backend message if available
+			throw new Error(error.response?.data?.error || 'Login failed. Please try again.');
 		}
-		// error handling
-		console.error("Login failed:", response.data)
-		return false
 	}
 
 	const register = async (email: string, password: string): Promise<boolean> => {
-		const response = await api.post('/register', { email, password })
-		if (response.status === 201) {
-			const userData = { email }
-			setUser(userData)
-			localStorage.setItem("user", JSON.stringify(userData))
-			return true
+		try {
+			const response = await api.post('/register', { email, password });
+			if (response.data.error) {
+				throw new Error(response.data.error);
+			}
+			// After successful registration, log in automatically
+			return await login(email, password);
+		} catch (error: any) {
+			console.error("Registration failed:", error);
+			throw new Error(error.response?.data?.error || 'Registration failed. Please try again.');
 		}
-		// error handling
-		console.error("Registration failed:", response.data)
-		return false
 	}
 
 	const logout = async () => {

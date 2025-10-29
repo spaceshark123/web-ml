@@ -10,25 +10,19 @@ import { Label } from "@/components/ui/label"
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
   const { login } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError("")
 
-    // TODO: Replace with actual Flask API call
-    // Example: const response = await fetch('http://localhost:5000/api/login', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ email, password })
-    // })
-
-    const success = await login(email, password)
-
-    if (success) {
+    try {
+      await login(email, password)
       navigate("/dashboard")
-    } else {
-      alert("Invalid credentials")
+    } catch (err: any) {
+      setError(err.message || 'Failed to log in. Please check your credentials.')
     }
   }
 
@@ -68,6 +62,10 @@ export default function LoginPage() {
             />
           </div>
 
+          {error && (
+            <div className="text-red-500 text-sm">{error}</div>
+          )}
+          
           <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 text-lg">
             Login
           </Button>
