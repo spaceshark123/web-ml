@@ -92,15 +92,15 @@ export function DatasetsContent() {
 						<Input placeholder="Search datasets..." className="pl-10 bg-white border-gray-300" />
 					</div>
 					<Select defaultValue="all">
-						<SelectTrigger className="w-48 bg-white border-gray-300">
+						<SelectTrigger className="w-27 bg-white border-gray-300">
 							<SelectValue placeholder="All Types" />
 						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="all">All Types</SelectItem>
-							<SelectItem value="csv">CSV</SelectItem>
-							<SelectItem value="xlsx">XLSX</SelectItem>
-							<SelectItem value="txt">TXT</SelectItem>
-							<SelectItem value="json">JSON</SelectItem>
+						<SelectContent className="bg-white" >
+							<SelectItem value="all" className="hover:bg-gray-200">All Types</SelectItem>
+							<SelectItem value="csv" className="hover:bg-gray-200">CSV</SelectItem>
+							<SelectItem value="xlsx" className="hover:bg-gray-200">XLSX</SelectItem>
+							<SelectItem value="txt" className="hover:bg-gray-200">TXT</SelectItem>
+							<SelectItem value="json" className="hover:bg-gray-200">JSON</SelectItem>
 						</SelectContent>
 					</Select>
 					<Button className="bg-gray-700 hover:bg-gray-800 text-white">Filter</Button>
@@ -154,30 +154,6 @@ export function DatasetsContent() {
 									}
 								};
 
-								const handleDownload = async () => {
-									try {
-										const response = await fetch(`http://localhost:5000/api/download/${dataset.id}`, {
-											method: 'GET',
-											credentials: 'include',
-										});
-										if (!response.ok) {
-											const data = await response.json();
-											throw new Error(data.error || 'Failed to download dataset');
-										}
-										const blob = await response.blob();
-										const url = window.URL.createObjectURL(blob);
-										const a = document.createElement('a');
-										a.href = url;
-										a.download = dataset.name;
-										document.body.appendChild(a);
-										a.click();
-										a.remove();
-										window.URL.revokeObjectURL(url);
-									} catch (error) {
-										console.error('Error downloading dataset:', error);
-									}
-								};
-
 								return (
 									<DatasetCard
 										id={dataset.id}
@@ -191,7 +167,6 @@ export function DatasetsContent() {
 										models={dataset.models || 0}
 										error={dataset.error}
 										onDelete={handleDelete}
-										onDownload={handleDownload}
 									/>
 								);
 							})
