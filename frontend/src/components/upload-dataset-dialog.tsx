@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Button } from "./ui/button"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -7,9 +7,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "./ui/dialog"
-import { Input } from "./ui/input"
-import { Label } from "./ui/label"
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 interface UploadDatasetDialogProps {
   onUploadSuccess?: () => void
@@ -119,7 +119,7 @@ export function UploadDatasetDialog({ onUploadSuccess }: UploadDatasetDialogProp
           {error && <p className="text-sm text-red-500">{error}</p>}
         </div>
         <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => setOpen(false)}>
             Cancel
           </Button>
           <Button

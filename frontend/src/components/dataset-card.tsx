@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card"
 
 interface DatasetCardProps {
+	id: number
 	name: string
 	description: string
 	uploadDate: string
@@ -17,9 +18,11 @@ interface DatasetCardProps {
 	rows: number
 	features: number
 	models: number
+	error?: string
+	onDelete?: () => void
 }
 
-export function DatasetCard({ name, description, uploadDate, fileSize, rows, features, models }: DatasetCardProps) {
+export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, features, models, error, onDelete }: DatasetCardProps) {
 	return (
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
@@ -30,6 +33,7 @@ export function DatasetCard({ name, description, uploadDate, fileSize, rows, fea
 
 			{/* Dataset Metadata */}
 			<CardContent>
+				{error && <p className="text-red-500">{error}</p>}
 				<div className="mb-6 space-y-2">
 					<div className="flex justify-between text-sm">
 						<span className="text-gray-600">Uploaded:</span>
@@ -67,11 +71,11 @@ export function DatasetCard({ name, description, uploadDate, fileSize, rows, fea
 						<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
 							Create New Model
 						</Button>
-						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50 bg-transparent">
+						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent">
 							Download
 						</Button>
 					</div>
-					<Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700 text-white">
+					<Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700 text-white" onClick={onDelete}>
 						Delete
 					</Button>
 				</div>
