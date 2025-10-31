@@ -341,7 +341,13 @@ def upload():
                 'dataset': {
                     'id': ds.id,
                     'name': filename,
+                    'description': description,
+                    'ext' : original_ext,
                     'file_path': path,
+                    'file_size': file_size,
+                    'rows': rows,
+                    'features': features,
+                    'target_feature': target_feature,
                     'upload_date': ds.created_at.isoformat(),
                     'error': f'Could not read file contents: {str(e)}'
                 }
@@ -748,9 +754,22 @@ def train(model_id):
     if df.shape[1] < 2:
         return jsonify({'error': 'Dataset must have at least 2 columns (features + target)'}), 400
 
-    X, y = df.iloc[:, :-1], df.iloc[:, -1]
-    # Basic train/test split; you can modify client-side to request different splits
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    if ds.target_feature and ds.target_feature in df.columns:
+        # Use the configured target feature
+        y = df[ds.target_feature]
+        X = df.drop(columns=[ds.target_feature])
+    else:
+        # Fallback to last column as target
+        X, y = df.iloc[:, :-1], df.iloc[:, -1]
+    
+    # Convert percentage (e.g., 20) to decimal (0.20) for sklearn
+    test_size = 0.2  # default fallback
+    if ds.train_test_split is not None:
+        test_size = ds.train_test_split / 100.0
+        # Ensure test_size is within valid range (0, 1)
+        test_size = max(0.01, min(0.99, test_size))
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
 
     try:
         wrapper = ModelWrapper.from_db_record(m_entry)
@@ -765,7 +784,8 @@ def train(model_id):
         return jsonify({
             'msg': 'Trained and saved model',
             'model_id': entry.id,
-            'metrics': wrapper.metrics
+            'metrics': wrapper.metrics,
+            'test_size_used': test_size  # Return the actual test size used
         }), 201
     except Exception as e:
         return jsonify({'error': f'Failed to train model: {str(e)}'}), 500
