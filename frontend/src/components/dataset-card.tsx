@@ -1,3 +1,4 @@
+import { CreateModelDialog } from "./create-model-dialog"
 import { Button } from "./ui/button"
 import {
 	Card,
@@ -69,9 +70,13 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 						<Button className="bg-green-600 hover:bg-green-700 text-white">Train Model</Button>
 					</div>
 					<div className="grid grid-cols-2 gap-2">
-						<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
-							Create New Model
-						</Button>
+						<CreateModelDialog
+							datasetIdInput={id}
+							text="Create New Model"
+							onUploadSuccess={() => {
+								// Handle successful model creation
+							}}
+						/>
 						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent" onClick={onDownload}>
 							Download
 						</Button>

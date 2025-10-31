@@ -52,6 +52,8 @@ class Dataset(db.Model):
     file_path = db.Column(db.String(200))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
+    target_feature = db.Column(db.String(100), nullable=True)
+    train_test_split = db.Column(db.Float, nullable=True)
     
 class ModelEntry(db.Model):
     """
@@ -496,6 +498,59 @@ def download_dataset(dataset_id):
     directory = os.path.dirname(ds.file_path)
     filename = os.path.basename(ds.file_path)
     return send_from_directory(directory, filename, as_attachment=True)
+
+# Get dataset columns
+@app.route('/api/datasets/<int:dataset_id>/columns', methods=['GET', 'OPTIONS'])
+@login_required
+def get_dataset_columns(dataset_id):
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+
+    ds = Dataset.query.get_or_404(dataset_id)
+    if ds.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    try:
+        ext = os.path.splitext(ds.name)[1].lower()
+        if ext == '.csv':
+            df = pd.read_csv(ds.file_path)
+        elif ext == '.txt':
+            df = pd.read_csv(ds.file_path, sep='\t')
+        elif ext == '.xlsx':
+            import openpyxl
+            df = pd.read_excel(ds.file_path, engine='openpyxl')
+        else:
+            return jsonify({'error': 'Unsupported file format'}), 400
+
+        return jsonify({'columns': df.columns.tolist()})
+    except Exception as e:
+        return jsonify({'error': f'Failed to read dataset: {str(e)}'}), 500
+
+# Save dataset configuration
+@app.route('/api/datasets/<int:dataset_id>/config', methods=['POST', 'OPTIONS'])
+@login_required
+def save_dataset_config(dataset_id):
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+
+    ds = Dataset.query.get_or_404(dataset_id)
+    if ds.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.json
+    target_feature = data.get('target_feature')
+    train_test_split = data.get('train_test_split')
+
+    if not target_feature or not isinstance(train_test_split, (int, float)):
+        return jsonify({'error': 'Invalid configuration data'}), 400
+
+    try:
+        ds.target_feature = target_feature
+        ds.train_test_split = float(train_test_split)
+        db.session.commit()
+        return jsonify({'msg': 'Configuration saved successfully'})
+    except Exception as e:
+        return jsonify({'error': f'Failed to save configuration: {str(e)}'}), 500
 
 # Delete dataset (supports OPTIONS for CORS preflight)
 @app.route('/api/datasets/<int:dataset_id>', methods=['DELETE', 'OPTIONS', 'GET'])

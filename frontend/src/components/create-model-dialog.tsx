@@ -13,11 +13,12 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface CreateModelDialogProps {
+	datasetIdInput?: number
 	text?: string
 	onUploadSuccess?: () => void
 }
 
-export function CreateModelDialog({ text, onUploadSuccess }: CreateModelDialogProps) {
+export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: CreateModelDialogProps) {
 	const [open, setOpen] = useState(false)
 	const [type, setType] = useState("")
 	const [datasetId, setDatasetId] = useState(-1)
@@ -108,6 +109,9 @@ export function CreateModelDialog({ text, onUploadSuccess }: CreateModelDialogPr
 		if (open && datasets.length === 0) {
 			getAvailableDatasets()
 		}
+		if (datasetIdInput) {
+			setDatasetId(datasetIdInput)
+		}
 	}, [open])
 
 	return (
@@ -157,6 +161,7 @@ export function CreateModelDialog({ text, onUploadSuccess }: CreateModelDialogPr
 						<Label htmlFor="file">Target Dataset</Label>
 						<Select
 							onValueChange={(value) => setDatasetId(parseInt(value))}
+							defaultValue={datasetIdInput ? datasetIdInput.toString() : undefined}	
 						>
 							<SelectTrigger className="w-full">
 								<SelectValue placeholder="Select a dataset" />
