@@ -45,6 +45,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
 
     if (!customName.trim()) {
       setError("Please provide a dataset name")
+      setUploading(false)
       return
     }
 
@@ -57,14 +58,25 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         method: "POST",
         body: formData,
         credentials: "include",
+        mode: 'cors',
       })
 
-      if (!response.ok) {
-        throw new Error("Upload failed")
+      // try to parse server response (JSON) for a clearer error message
+      let body: any = null
+      const contentType = response.headers.get('content-type')
+      if (contentType && contentType.includes('application/json')) {
+        body = await response.json().catch(() => null)
+      } else {
+        body = await response.text().catch(() => null)
       }
 
-      const data = await response.json()
-      if (data.error) {
+      if (!response.ok) {
+        const msg = body && typeof body === 'object' && body.error ? body.error : (typeof body === 'string' && body) || `Upload failed (${response.status})`
+        throw new Error(msg)
+      }
+
+      const data = body
+      if (data && data.error) {
         throw new Error(data.error)
       }
       onUploadSuccess?.()
