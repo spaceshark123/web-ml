@@ -4,7 +4,7 @@ import { Input } from "./ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DatasetCard } from "./dataset-card"
 import { Link } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import { API_BASE_URL } from "@/constants"
 import axios from "axios"
@@ -34,6 +34,8 @@ export function DatasetsContent() {
 	const [datasets, setDatasets] = useState<Dataset[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [searchQuery, setSearchQuery] = useState("")
+	const [selectedType, setSelectedType] = useState<string>("all")
 
 	const fetchDatasets = async () => {
 		setLoading(true)
@@ -90,6 +92,21 @@ export function DatasetsContent() {
 		}
 	}
 
+	// Derived filtered list based on search query and selected type
+	const filteredDatasets = useMemo(() => {
+		const q = searchQuery.trim().toLowerCase()
+		return datasets.filter((d) => {
+			// filter by type
+			if (selectedType !== 'all') {
+				const ext = d.name ? d.name.split('.').pop()?.toLowerCase() : ''
+				if (ext !== selectedType) return false
+			}
+			// search by name
+			if (!q) return true
+			return (d.name || '').toLowerCase().includes(q)
+		})
+	}, [datasets, searchQuery, selectedType])
+
 	useEffect(() => {
 		fetchDatasets()
 	}, [])
@@ -112,9 +129,6 @@ export function DatasetsContent() {
 					</div>
 					<div className="flex gap-3">
 						<UploadDatasetDialog onUploadSuccess={fetchDatasets} />
-						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50 bg-transparent">
-							Bulk Actions
-						</Button>
 					</div>
 				</div>
 			</div>
@@ -124,9 +138,14 @@ export function DatasetsContent() {
 				<div className="flex items-center gap-4">
 					<div className="flex-1 relative">
 						<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-						<Input placeholder="Search datasets..." className="pl-10 bg-white border-gray-300" />
+						<Input
+							placeholder="Search datasets..."
+							className="pl-10 bg-white border-gray-300"
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+						/>
 					</div>
-					<Select defaultValue="all">
+					<Select value={selectedType} onValueChange={(v) => setSelectedType(v)}>
 						<SelectTrigger className="w-27 bg-white border-gray-300">
 							<SelectValue placeholder="All Types" />
 						</SelectTrigger>
@@ -138,9 +157,16 @@ export function DatasetsContent() {
 							<SelectItem value="json" className="hover:bg-gray-200">JSON</SelectItem>
 						</SelectContent>
 					</Select>
-					<Button className="bg-gray-700 hover:bg-gray-800 text-white">Filter</Button>
-					<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
-						Clear
+					<Button
+						variant="outline"
+						className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent"
+						onClick={() => {
+							setSearchQuery("")
+							setSelectedType("all")
+							fetchDatasets()
+						}}
+					>
+						Clear Filters
 					</Button>
 				</div>
 			</div>
@@ -163,12 +189,12 @@ export function DatasetsContent() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-						{datasets.length === 0 ? (
-							<div className="col-span-full text-center py-12">
-								<p className="text-gray-500">No datasets found. Upload your first dataset to get started!</p>
-							</div>
-						) : (
-							datasets.map((dataset) => {
+						{filteredDatasets.length === 0 ? (
+								<div className="col-span-full text-center py-12">
+									<p className="text-gray-500">No datasets match your filters.</p>
+								</div>
+							) : (
+								filteredDatasets.map((dataset) => {
 								const handleDelete = async () => {
 									const ok = window.confirm(`Delete dataset "${dataset.name}"? This will remove the file and cannot be undone.`)
 									if (!ok) return
