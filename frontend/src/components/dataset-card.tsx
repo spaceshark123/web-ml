@@ -76,20 +76,20 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 				{/* Action Buttons */}
 				<div className="space-y-2">
 					<div className="grid grid-cols-2 gap-2">
-						<Button className="bg-blue-600 hover:bg-blue-700 text-white">View</Button>
-						<Button className="bg-green-600 hover:bg-green-700 text-white">Train Model</Button>
+						<Button variant='outline' className="border-gray-300 hover:bg-gray-100 bg-transparent text-gray-700">View</Button>
+						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent" onClick={onDownload}>
+							Download
+						</Button>
 					</div>
 					<div className="grid grid-cols-2 gap-2">
 						<CreateModelDialog
 							datasetIdInput={id}
-							text="Create New Model"
+							text="New Model"
 							onUploadSuccess={() => {
 								// Handle successful model creation
 							}}
 						/>
-						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent" onClick={onDownload}>
-							Download
-						</Button>
+						<Button className="bg-green-600 hover:bg-green-700 text-white">Train Model</Button>
 					</div>
 					<Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700 text-white" onClick={onDelete}>
 						Delete

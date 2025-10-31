@@ -170,7 +170,7 @@ export function ModelsContent() {
 							setFilterType("all");
 						}}
 					>
-						Clear
+						Clear Filters
 					</Button>
 				</div>
 			</div>
