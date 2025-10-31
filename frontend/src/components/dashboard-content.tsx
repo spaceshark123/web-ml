@@ -6,10 +6,12 @@ import { Card } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
 import { Link } from "react-router-dom"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
+import type { Model } from "./models-content"
 
 export function DashboardContent() {
 	let numDatasets = 0
 	const [datasetsCount, setDatasetsCount] = useState<number>(0)
+	const [models, setModels] = useState<Model[]>([])
 
 	const fetchDatasetsCount = async () => {
 		try {
@@ -29,8 +31,32 @@ export function DashboardContent() {
 		}
 	}
 
+	const fetchModels = async () => {
+		try {
+			const res = await fetch("http://localhost:5000/api/models", {
+				method: "GET",
+				credentials: "include",
+				headers: {
+					Accept: "application/json",
+					"Content-Type": "application/json",
+				},
+			})
+			if (!res.ok) {
+				return
+			}
+			const data = await res.json()
+			if (data.error) {
+				return
+			}
+			setModels(Array.isArray(data) ? data : [])
+		} catch {
+			console.log("Failed to fetch models count")
+		}
+	}
+
 	useEffect(() => {
 		fetchDatasetsCount()
+		fetchModels()
 	}, [])
 
 	return (
@@ -48,7 +74,7 @@ export function DashboardContent() {
 				/>
 				<StatCard
 					icon={<Settings className="w-10 h-10" />}
-					value="0"
+					value={models.length.toString()}
 					label="Models"
 					gradient="from-[#7B6FD7] to-[#8B5FBF]"
 				/>
@@ -84,8 +110,11 @@ export function DashboardContent() {
 									<SelectValue placeholder="Choose a model..." />
 								</SelectTrigger>
 								<SelectContent className="bg-white">
-									<SelectItem value="model1" className="hover:bg-gray-200">Model 1</SelectItem>
-									<SelectItem value="model2" className="hover:bg-gray-200">Model 2</SelectItem>
+									{models.map((model) => (
+										<SelectItem key={model.id} value={model.id.toString()} className="hover:bg-gray-200">
+											{model.name}
+										</SelectItem>
+									))}
 								</SelectContent>
 							</Select>
 							<Button className="bg-green-600 hover:bg-green-700 text-white">
@@ -110,9 +139,6 @@ export function DashboardContent() {
 							<Database className="w-5 h-5 text-primary" />
 							<h2 className="text-xl font-semibold">Recent Datasets</h2>
 						</div>
-						{/* <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
-							+ Upload
-						</Button> */}
 						<UploadDatasetDialog text="+ Upload" onUploadSuccess={fetchDatasetsCount} />
 					</div>
 

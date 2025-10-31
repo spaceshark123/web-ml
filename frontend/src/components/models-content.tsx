@@ -9,7 +9,7 @@ import { API_BASE_URL } from "@/constants"
 import axios from "axios"
 import { ModelCard } from "./model-card"
 
-interface Model {
+export interface Model {
 	id: number
 	name: string
 	created_at: string
