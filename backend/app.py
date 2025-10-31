@@ -249,10 +249,12 @@ def upload():
         file = request.files.get('file')
         custom_name = request.form.get('name')
         description = request.form.get('description')
+        target_feature = request.form.get('target_feature')
         
         print(f"Received file: {file.filename if file else 'None'}")
         print(f"Custom name: {custom_name}")
         print(f"Description: {description}")
+        print(f"Target feature: {target_feature}")
 
         if not file:
             return jsonify({'error': 'No file provided'}), 400
@@ -283,7 +285,7 @@ def upload():
             
         try:
             # Save name with extension to ensure consistency when retrieving
-            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description)
+            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description, target_feature=target_feature)
             db.session.add(ds)
             db.session.commit()
         except Exception as e:
@@ -356,6 +358,7 @@ def upload():
                 'file_size': file_size,
                 'rows': rows,
                 'features': features,
+                'target_feature': target_feature,
                 'upload_date': ds.created_at.isoformat(),
                 'models': 0
             }
@@ -414,6 +417,7 @@ def get_datasets():
                     'file_size': 0,
                     'rows': 0,
                     'features': 0,
+                    'target_feature': ds.target_feature,
                     'models': ModelEntry.query.filter_by(dataset_id=ds.id).count()
                 }
                 

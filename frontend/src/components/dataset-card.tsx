@@ -18,13 +18,14 @@ interface DatasetCardProps {
 	fileSize: string
 	rows: number
 	features: number
+	target_feature: string
 	models: number
 	error?: string
 	onDelete?: () => void
 	onDownload?: () => void
 }
 
-export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, features, models, error, onDelete, onDownload }: DatasetCardProps) {
+export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, target_feature, features, models, error, onDelete, onDownload }: DatasetCardProps) {
 	return (
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
@@ -45,6 +46,15 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 						<span className="text-gray-600">File Size:</span>
 						<span className="text-gray-900">{fileSize}</span>
 					</div>
+					<div className="flex justify-between text-sm">
+						<span className="text-gray-600">Rows:</span>
+						<span className="text-gray-900">{rows}</span>
+					</div>
+					<div className="flex justify-between text-sm">
+						<span className="text-gray-600">Target:</span>
+						<span className="text-gray-900">{target_feature}</span>
+					</div>
+
 				</div>
 
 				{/* Stats */}
