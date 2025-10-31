@@ -9,6 +9,7 @@ import {
 	CardTitle,
 } from "@/components/ui/card"
 import { useEffect, useState } from "react"
+import { TrainModelDialog } from "./train-model-dialog"
 
 interface ModelCardProps {
 	id: number
@@ -17,6 +18,7 @@ interface ModelCardProps {
 	model_type: 'linear_regression' | 'logistic_regression' | 'decision_tree' | 'bagging' | 'boosting' | 'random_forest' | 'svm' | 'mlp'
 	created_at: string
 	datasetId: number
+	params?: Record<string, any> // params for model (e.g. n_estimators, layers, etc.)
 	metrics: {
 		accuracy?: number
 		precision?: number
@@ -141,7 +143,12 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 				<div className="space-y-2">
 					<div className="grid grid-cols-2 gap-2">
 						<Button className="bg-blue-600 hover:bg-blue-700 text-white">Evaluate</Button>
-						<Button className="bg-green-600 hover:bg-green-700 text-white">Train Model</Button>
+						<TrainModelDialog
+							modelIdInput={id}
+							onTrainSuccess={() => {
+								// Handle successful train
+							}}
+						/>
 					</div>
 					<div className="grid grid-cols-2 gap-2">
 						<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
