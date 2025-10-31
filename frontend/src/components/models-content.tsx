@@ -41,6 +41,9 @@ export function ModelsContent() {
 	const [models, setModels] = useState<Model[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [searchQuery, setSearchQuery] = useState("")
+	const [filterType, setFilterType] = useState("all")
+
 
 	const fetchModels = async () => {
 		setLoading(true)
@@ -97,6 +100,12 @@ export function ModelsContent() {
 		}
 	}
 
+	const filteredModels = models.filter((model) => {
+		const matchesSearch = model.name.toLowerCase().includes(searchQuery.toLowerCase());
+		const matchesType = filterType === "all" || model.model_type === filterType;
+		return matchesSearch && matchesType;
+	});
+
 	useEffect(() => {
 		fetchModels()
 	}, [])
@@ -120,9 +129,6 @@ export function ModelsContent() {
 					</div>
 					<div className="flex gap-3">
 						<CreateModelDialog onUploadSuccess={fetchModels} />
-						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50 bg-transparent">
-							Bulk Actions
-						</Button>
 					</div>
 				</div>
 			</div>
@@ -132,13 +138,18 @@ export function ModelsContent() {
 				<div className="flex items-center gap-4">
 					<div className="flex-1 relative">
 						<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-						<Input placeholder="Search models..." className="pl-10 bg-white border-gray-300" />
+						<Input
+							placeholder="Search models..."
+							className="pl-10 bg-white border-gray-300"
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+						/>
 					</div>
-					<Select defaultValue="all">
+					<Select value={filterType} onValueChange={setFilterType}>
 						<SelectTrigger className="w-27 bg-white border-gray-300">
 							<SelectValue placeholder="All Types" />
 						</SelectTrigger>
-						<SelectContent className="bg-white" >
+						<SelectContent className="bg-white">
 							<SelectItem value="all" className="hover:bg-gray-200">All Types</SelectItem>
 							<SelectItem value="linear_regression" className="hover:bg-gray-200">Linear Regression</SelectItem>
 							<SelectItem value="logistic_regression" className="hover:bg-gray-200">Logistic Regression</SelectItem>
@@ -150,8 +161,14 @@ export function ModelsContent() {
 							<SelectItem value="mlp" className="hover:bg-gray-200">MLP</SelectItem>
 						</SelectContent>
 					</Select>
-					<Button className="bg-gray-700 hover:bg-gray-800 text-white">Filter</Button>
-					<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
+					<Button
+						variant="outline"
+						className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent"
+						onClick={() => {
+							setSearchQuery("");
+							setFilterType("all");
+						}}
+					>
 						Clear
 					</Button>
 				</div>
@@ -175,12 +192,12 @@ export function ModelsContent() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-						{models.length === 0 ? (
+						{filteredModels.length === 0 ? (
 							<div className="col-span-full text-center py-12">
 								<p className="text-gray-500">No models found. Create your first model to get started!</p>
 							</div>
 						) : (
-							models.map((model) => {
+							filteredModels.map((model) => {
 								const handleDelete = async () => {
 									const ok = window.confirm(`Delete model "${model.name}"? This will remove the file and cannot be undone.`)
 									if (!ok) return
