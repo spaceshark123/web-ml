@@ -51,6 +51,10 @@ class Dataset(db.Model):
     name = db.Column(db.String(100))
     file_path = db.Column(db.String(200))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    description = db.Column(db.Text, nullable=True)
+    # NOTE: keep model fields in sync with the existing DB schema.
+    # Historical schema uses `target_feature` and `train_test_split`.
+    # Avoid adding `target_variable`/`split_percent` here unless you run a DB migration.
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
     target_feature = db.Column(db.String(100), nullable=True)
     train_test_split = db.Column(db.Float, nullable=True)
@@ -62,6 +66,7 @@ class ModelEntry(db.Model):
     """
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=True)
     model_type = db.Column(db.String(80), nullable=False)
     params = db.Column(db.LargeBinary, nullable=True)
     metrics = db.Column(db.LargeBinary, nullable=True)
@@ -243,10 +248,12 @@ def upload():
             
         file = request.files.get('file')
         custom_name = request.form.get('name')
+        description = request.form.get('description')
         
         print(f"Received file: {file.filename if file else 'None'}")
         print(f"Custom name: {custom_name}")
-        
+        print(f"Description: {description}")
+
         if not file:
             return jsonify({'error': 'No file provided'}), 400
         if not custom_name:
@@ -276,7 +283,7 @@ def upload():
             
         try:
             # Save name with extension to ensure consistency when retrieving
-            ds = Dataset(name=filename, file_path=path, user_id=current_user.id)
+            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description)
             db.session.add(ds)
             db.session.commit()
         except Exception as e:
@@ -343,6 +350,7 @@ def upload():
             'dataset': {
                 'id': ds.id,
                 'name': filename,
+                'description': description,
                 'ext' : original_ext,
                 'file_path': path,
                 'file_size': file_size,
@@ -400,6 +408,7 @@ def get_datasets():
                 dataset_info = {
                     'id': ds.id,
                     'name': ds.name,
+                    'description': ds.description,
                     'file_path': ds.file_path,
                     'upload_date': upload_date,
                     'file_size': 0,
@@ -604,6 +613,7 @@ def list_models():
         out.append({
             'id': m.id,
             'name': m.name,
+            'description': m.description if hasattr(m, 'description') else 'No description',
             'model_type': m.model_type,
             'dataset_id': m.dataset_id,
             'created_at': m.created_at.isoformat() if m.created_at else None,
@@ -618,6 +628,7 @@ def create_model():
     data = request.json
     print(f"\n=== Create Model Request ===\nData: {data}")
     name = data.get('name')
+    description = data.get('description')
     model_type = data.get('model_type')
     dataset_id = data.get('dataset_id')
     params = data.get('params', {})
@@ -637,6 +648,7 @@ def create_model():
     try:
         wrapper = ModelWrapper(model_type=model_type, model=None, params=params)
         entry = wrapper.to_db_record(name=name, dataset_id=ds.id if ds else None, user_id=current_user.id)
+        entry.description = description
         db.session.add(entry)
         db.session.commit()
         return jsonify({'msg': 'Model created', 'model_id': entry.id}), 201
@@ -652,6 +664,7 @@ def get_model(model_id):
     return jsonify({
         'id': m.id,
         'name': m.name,
+        'description': m.description if hasattr(m, 'description') else 'No description',
         'model_type': m.model_type,
         'dataset_id': m.dataset_id,
         'created_at': m.created_at.isoformat() if m.created_at else None,
@@ -853,6 +866,22 @@ with app.app_context():
             
     except Exception as e:
         print(f"Error initializing database: {str(e)}")
+
+@app.route('/api/migrate/add-model-description', methods=['POST'])
+def migrate_add_model_description():
+    key = request.args.get('key')
+    if key != 'supersecretresetkey':
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        # Add description column if it doesn't exist
+        with db.engine.connect() as conn:
+            conn.execute(db.text('ALTER TABLE model_entry ADD COLUMN description TEXT'))
+            conn.commit()
+        return jsonify({'msg': 'Migration completed successfully'})
+    except Exception as e:
+        # Column might already exist
+        return jsonify({'msg': f'Migration note: {str(e)}'})
+    
 
 # ===== Main =====
 if __name__ == '__main__':

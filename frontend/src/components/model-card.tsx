@@ -13,6 +13,7 @@ import { useEffect, useState } from "react"
 interface ModelCardProps {
 	id: number
 	name: string
+	description?: string
 	model_type: 'linear_regression' | 'logistic_regression' | 'decision_tree' | 'bagging' | 'boosting' | 'random_forest' | 'svm' | 'mlp'
 	created_at: string
 	datasetId: number
@@ -31,7 +32,7 @@ interface ModelCardProps {
 	onDownload?: () => void
 }
 
-export function ModelCard({ id, name, model_type, created_at, datasetId, metrics, error, onDelete, onDownload }: ModelCardProps) {
+export function ModelCard({ id, name, description, model_type, created_at, datasetId, metrics, error, onDelete, onDownload }: ModelCardProps) {
 	const datasetNameFromID = async (id: number) => {
 		name = await fetch(`http://localhost:5000/api/datasets/${id}`, {
 			method: 'GET',
@@ -63,6 +64,7 @@ export function ModelCard({ id, name, model_type, created_at, datasetId, metrics
 			{/* Header */}
 			<CardHeader>
 				<CardTitle>{name}</CardTitle>
+				<CardDescription>{description}</CardDescription>
 			</CardHeader>
 
 			{/* Model Metadata */}

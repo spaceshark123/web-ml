@@ -19,6 +19,7 @@ export interface Dataset {
 	features: number
 	models: number
 	error?: string
+	description?: string
 }
 
 const api = axios.create({
@@ -219,7 +220,7 @@ export function DatasetsContent() {
 										id={dataset.id}
 										key={dataset.id}
 										name={dataset.name}
-										description="No description provided"
+										description={dataset.description || "No description provided"}
 										uploadDate={dataset.upload_date ? new Date(dataset.upload_date).toLocaleDateString() : 'Unknown'}
 										fileSize={dataset.file_size ? `${(dataset.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
 										rows={dataset.rows || 0}

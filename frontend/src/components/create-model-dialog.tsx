@@ -23,6 +23,7 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 	const [type, setType] = useState("")
 	const [datasetId, setDatasetId] = useState(-1)
 	const [customName, setCustomName] = useState("")
+	const [description, setDescription] = useState("")
 	const [uploading, setUploading] = useState(false)
 	const [datasets, setDatasets] = useState<Array<{id: number, name: string}>>([])
 	const [error, setError] = useState("")
@@ -52,6 +53,7 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 				method: "POST",
 				body: JSON.stringify({
 					name: customName.trim(),
+					description: description.trim(),
 					model_type: type,
 					dataset_id: datasetId,
 				}),
@@ -135,6 +137,16 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 							value={customName}
 							onChange={(e) => setCustomName(e.target.value)}
 							placeholder="Enter model name"
+						/>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="custom-description">Model Description</Label>
+						<Input
+							id="custom-description"
+							type="text"
+							value={description}
+							onChange={(e) => setDescription(e.target.value)}
+							placeholder="Enter model description"
 						/>
 					</div>
 					<div className="space-y-2">

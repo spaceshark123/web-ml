@@ -12,6 +12,7 @@ import { ModelCard } from "./model-card"
 export interface Model {
 	id: number
 	name: string
+	description?: string
 	created_at: string
 	model_type: 'linear_regression' | 'logistic_regression' | 'decision_tree' | 'bagging' | 'boosting' | 'random_forest' | 'svm' | 'mlp'
 	dataset_id: number
@@ -228,6 +229,7 @@ export function ModelsContent() {
 										id={model.id}
 										key={model.id}
 										name={model.name}
+										description={model.description}
 										created_at={model.created_at ? new Date(model.created_at).toLocaleDateString() : 'Unknown'}
 										model_type={model.model_type}
 										datasetId={model.dataset_id}
