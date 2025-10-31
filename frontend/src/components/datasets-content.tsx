@@ -9,7 +9,7 @@ import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import { API_BASE_URL } from "@/constants"
 import axios from "axios"
 
-interface Dataset {
+export interface Dataset {
 	id: number
 	name: string
 	file_path: string

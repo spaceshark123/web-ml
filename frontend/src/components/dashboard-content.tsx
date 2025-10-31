@@ -7,13 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Link } from "react-router-dom"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import type { Model } from "./models-content"
+import type { Dataset } from "./datasets-content"
 
 export function DashboardContent() {
 	let numDatasets = 0
-	const [datasetsCount, setDatasetsCount] = useState<number>(0)
+	const [datasets, setDatasets] = useState<Dataset[]>([])
 	const [models, setModels] = useState<Model[]>([])
 
-	const fetchDatasetsCount = async () => {
+	const fetchDatasets = async () => {
 		try {
 			const res = await fetch("http://localhost:5000/api/datasets", {
 				method: "GET",
@@ -23,11 +24,16 @@ export function DashboardContent() {
 					"Content-Type": "application/json",
 				},
 			})
-			if (!res.ok) return
+			if (!res.ok) {
+				return
+			}
 			const data = await res.json()
-			setDatasetsCount(Array.isArray(data) ? data.length : Number(data?.length ?? data?.count ?? 0))
+			if (data.error) {
+				return
+			}
+			setDatasets(Array.isArray(data) ? data : [])
 		} catch {
-			console.log("Failed to fetch datasets count")
+			console.log("Failed to fetch datasets")
 		}
 	}
 
@@ -55,7 +61,7 @@ export function DashboardContent() {
 	}
 
 	useEffect(() => {
-		fetchDatasetsCount()
+		fetchDatasets()
 		fetchModels()
 	}, [])
 
@@ -68,7 +74,7 @@ export function DashboardContent() {
 			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 				<StatCard
 					icon={<Database className="w-10 h-10" />}
-					value={datasetsCount.toString()}
+					value={datasets.length.toString()}
 					label="Datasets"
 					gradient="from-[#6B7FD7] to-[#7B6FD7]"
 				/>
@@ -139,17 +145,19 @@ export function DashboardContent() {
 							<Database className="w-5 h-5 text-primary" />
 							<h2 className="text-xl font-semibold">Recent Datasets</h2>
 						</div>
-						<UploadDatasetDialog text="+ Upload" onUploadSuccess={fetchDatasetsCount} />
+						<UploadDatasetDialog text="+ Upload" onUploadSuccess={fetchDatasets} />
 					</div>
 
 					<div className="space-y-4">
+						{datasets.slice(0, 3).map((dataset) => (
 						<div className="flex items-start justify-between py-3 border-b">
 							<div>
-								<h3 className="font-semibold">titanic</h3>
-								<p className="text-sm text-muted-foreground">891 rows, 12 columns</p>
+								<h3 className="font-semibold">{dataset.name}</h3>
+								<p className="text-sm text-muted-foreground">{dataset.rows} rows, {dataset.features} columns</p>
 							</div>
-							<span className="text-sm text-muted-foreground">1 month ago</span>
-						</div>
+							<span className="text-sm text-muted-foreground">{new Date(dataset.upload_date).toLocaleDateString()}</span>
+							</div>
+						))}
 					</div>
 
 					<Button asChild variant="outline" className="w-full border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
