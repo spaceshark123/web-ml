@@ -124,21 +124,14 @@ export function CreateModelDialog({ text, onUploadSuccess }: CreateModelDialogPr
 				</DialogHeader>
 				<div className="space-y-4 py-4">
 					<div className="space-y-2">
-						<Label htmlFor="file">Target Dataset</Label>
-						<Select
-							onValueChange={(value) => setDatasetId(parseInt(value))}
-						>
-							<SelectTrigger className="w-full">
-								<SelectValue placeholder="Select a dataset" />
-							</SelectTrigger>
-							<SelectContent className="bg-white">
-								{datasets && datasets.map((dataset) => {
-									return (
-										<SelectItem key={dataset.id} value={dataset.id.toString()} className="hover:bg-gray-200">{dataset.name}</SelectItem>
-									)
-								})}
-							</SelectContent>
-						</Select>
+						<Label htmlFor="custom-name">Model Name</Label>
+						<Input
+							id="custom-name"
+							type="text"
+							value={customName}
+							onChange={(e) => setCustomName(e.target.value)}
+							placeholder="Enter model name"
+						/>
 					</div>
 					<div className="space-y-2">
 						<Label htmlFor="model-type">Model Type</Label>
@@ -161,14 +154,21 @@ export function CreateModelDialog({ text, onUploadSuccess }: CreateModelDialogPr
 						</Select>
 					</div>
 					<div className="space-y-2">
-						<Label htmlFor="custom-name">Model Name</Label>
-						<Input
-							id="custom-name"
-							type="text"
-							value={customName}
-							onChange={(e) => setCustomName(e.target.value)}
-							placeholder="Enter model name"
-						/>
+						<Label htmlFor="file">Target Dataset</Label>
+						<Select
+							onValueChange={(value) => setDatasetId(parseInt(value))}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="Select a dataset" />
+							</SelectTrigger>
+							<SelectContent className="bg-white">
+								{datasets && datasets.map((dataset) => {
+									return (
+										<SelectItem key={dataset.id} value={dataset.id.toString()} className="hover:bg-gray-200">{dataset.name}</SelectItem>
+									)
+								})}
+							</SelectContent>
+						</Select>
 					</div>
 					{error && <p className="text-sm text-red-500">{error}</p>}
 				</div>
