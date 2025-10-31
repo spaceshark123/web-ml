@@ -140,12 +140,12 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 				{/* Action Buttons */}
 				<div className="space-y-2">
 					<div className="grid grid-cols-2 gap-2">
-						<Button className="bg-blue-600 hover:bg-blue-700 text-white">View</Button>
+						<Button className="bg-blue-600 hover:bg-blue-700 text-white">Evaluate</Button>
 						<Button className="bg-green-600 hover:bg-green-700 text-white">Train Model</Button>
 					</div>
 					<div className="grid grid-cols-2 gap-2">
 						<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
-							Evaluate
+							View
 						</Button>
 						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent" onClick={onDownload}>
 							Download
