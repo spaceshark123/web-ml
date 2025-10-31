@@ -83,9 +83,9 @@ export function DashboardContent() {
 								<SelectTrigger className="flex-1">
 									<SelectValue placeholder="Choose a model..." />
 								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="model1">Model 1</SelectItem>
-									<SelectItem value="model2">Model 2</SelectItem>
+								<SelectContent className="bg-white">
+									<SelectItem value="model1" className="hover:bg-gray-200">Model 1</SelectItem>
+									<SelectItem value="model2" className="hover:bg-gray-200">Model 2</SelectItem>
 								</SelectContent>
 							</Select>
 							<Button className="bg-green-600 hover:bg-green-700 text-white">

@@ -131,10 +131,10 @@ export function CreateModelDialog({ text, onUploadSuccess }: CreateModelDialogPr
 							<SelectTrigger className="w-full">
 								<SelectValue placeholder="Select a dataset" />
 							</SelectTrigger>
-							<SelectContent>
+							<SelectContent className="bg-white">
 								{datasets && datasets.map((dataset) => {
 									return (
-										<SelectItem key={dataset.id} value={dataset.id.toString()}>{dataset.name}</SelectItem>
+										<SelectItem key={dataset.id} value={dataset.id.toString()} className="hover:bg-gray-200">{dataset.name}</SelectItem>
 									)
 								})}
 							</SelectContent>
@@ -148,15 +148,15 @@ export function CreateModelDialog({ text, onUploadSuccess }: CreateModelDialogPr
 							<SelectTrigger className="w-full">
 								<SelectValue placeholder="Select model type" />
 							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="linear_regression">Linear Regression</SelectItem>
-								<SelectItem value="logistic_regression">Logistic Regression</SelectItem>
-								<SelectItem value="decision_tree">Decision Tree</SelectItem>
-								<SelectItem value="bagging">Bagging</SelectItem>
-								<SelectItem value="boosting">Boosting</SelectItem>
-								<SelectItem value="random_forest">Random Forest</SelectItem>
-								<SelectItem value="svm">SVM</SelectItem>
-								<SelectItem value="mlp">MLP</SelectItem>
+							<SelectContent className = "bg-white">
+								<SelectItem value="linear_regression" className="hover:bg-gray-200">Linear Regression</SelectItem>
+								<SelectItem value="logistic_regression" className="hover:bg-gray-200">Logistic Regression</SelectItem>
+								<SelectItem value="decision_tree" className="hover:bg-gray-200">Decision Tree</SelectItem>
+								<SelectItem value="bagging" className="hover:bg-gray-200">Bagging</SelectItem>
+								<SelectItem value="boosting" className="hover:bg-gray-200">Boosting</SelectItem>
+								<SelectItem value="random_forest" className="hover:bg-gray-200">Random Forest</SelectItem>
+								<SelectItem value="svm" className="hover:bg-gray-200">SVM</SelectItem>
+								<SelectItem value="mlp" className="hover:bg-gray-200">MLP</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
