@@ -3,16 +3,23 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import os, pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
-
+import os, pandas as pd, pickle, io, datetime
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier, RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, mean_squared_error
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'devsecret'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB max uploads
 
 # Configure CORS
 from flask_cors import CORS
@@ -45,6 +52,118 @@ class Dataset(db.Model):
     file_path = db.Column(db.String(200))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
+    
+class ModelEntry(db.Model):
+    """
+    Stores models in DB. model_blob contains a pickled model object.
+    params and metrics are pickled dicts.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    model_type = db.Column(db.String(80), nullable=False)
+    params = db.Column(db.LargeBinary, nullable=True)
+    metrics = db.Column(db.LargeBinary, nullable=True)
+    model_blob = db.Column(db.LargeBinary, nullable=False)
+    dataset_id = db.Column(db.Integer, db.ForeignKey('dataset.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
+    
+# ===== Model wrapper/helper =====
+class ModelWrapper:
+    """
+    Thin wrapper to standardize training/predicting and DB serialization.
+    model_type: one of ('linear_regression','logistic_regression','decision_tree',
+                       'bagging','boosting','random_forest','svm','mlp','custom')
+    For 'custom' we accept an uploaded pickled model file which will be stored as-is.
+    """
+    def __init__(self, model_type, model=None, params=None):
+        self.model_type = model_type
+        self.model = model
+        self.params = params or {}
+        self.metrics = {}
+
+    def train(self, X, y, **train_kwargs):
+        # X,y are pandas or numpy-like
+        if self.model is None:
+            self.model = self._instantiate_from_type(self.model_type, self.params)
+
+        # For scikit-learn style models
+        if hasattr(self.model, 'fit'):
+            self.model.fit(X, y)
+        else:
+            # If the model is custom and doesn't have fit, raise
+            raise ValueError("Model does not support .fit() - provide a fitted model blob for 'custom' models")
+
+    def predict(self, X):
+        if self.model is None:
+            raise ValueError("No model loaded")
+        if hasattr(self.model, 'predict'):
+            return self.model.predict(X)
+        else:
+            # If model is pickled custom object without predict, try calling it as function
+            try:
+                return self.model(X)
+            except Exception as e:
+                raise ValueError(f"Model has no predict method and is not callable: {e}")
+
+    def evaluate(self, X, y):
+        preds = self.predict(X)
+        # Simple heuristic: if target dtype is numeric and model_type suggests regression, use MSE
+        if self.model_type in ['linear_regression']:
+            self.metrics['mse'] = float(mean_squared_error(y, preds))
+        else:
+            # classification metrics
+            try:
+                self.metrics['accuracy'] = float(accuracy_score(y, preds))
+            except Exception:
+                self.metrics['accuracy'] = None
+        return self.metrics
+
+    def to_db_record(self, name, dataset_id, user_id):
+        model_blob = pickle.dumps(self.model)
+        params_blob = pickle.dumps(self.params)
+        metrics_blob = pickle.dumps(self.metrics)
+        return ModelEntry(
+            name=name,
+            model_type=self.model_type,
+            params=params_blob,
+            metrics=metrics_blob,
+            model_blob=model_blob,
+            dataset_id=dataset_id,
+            user_id=user_id
+        )
+
+    @staticmethod
+    def from_db_record(record: ModelEntry):
+        params = pickle.loads(record.params) if record.params else {}
+        metrics = pickle.loads(record.metrics) if record.metrics else {}
+        model = pickle.loads(record.model_blob)
+        wrapper = ModelWrapper(model_type=record.model_type, model=model, params=params)
+        wrapper.metrics = metrics
+        return wrapper
+
+    @staticmethod
+    def _instantiate_from_type(model_type, params):
+        # Map types to sklearn classes
+        if model_type == 'linear_regression':
+            return LinearRegression(**(params or {}))
+        if model_type == 'logistic_regression':
+            return LogisticRegression(**(params or {}))
+        if model_type == 'decision_tree':
+            return DecisionTreeClassifier(**(params or {}))
+        if model_type == 'random_forest':
+            return RandomForestClassifier(**(params or {}))
+        if model_type == 'bagging':
+            return BaggingClassifier(**(params or {}))
+        if model_type == 'boosting':
+            # AdaBoost for classification
+            return AdaBoostClassifier(**(params or {}))
+        if model_type == 'svm':
+            return SVC(**(params or {}))
+        if model_type == 'mlp':
+            return MLPClassifier(**(params or {}))
+        # 'custom' must be provided as an already pickled/fitted model by user
+        raise ValueError(f"Unknown model_type: {model_type}")
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -284,7 +403,7 @@ def get_datasets():
                     'file_size': 0,
                     'rows': 0,
                     'features': 0,
-                    'models': 0
+                    'models': ModelEntry.query.filter_by(dataset_id=ds.id).count()
                 }
                 
                 if not ds.file_path:
@@ -379,11 +498,18 @@ def download_dataset(dataset_id):
     return send_from_directory(directory, filename, as_attachment=True)
 
 # Delete dataset (supports OPTIONS for CORS preflight)
-@app.route('/api/datasets/<int:dataset_id>', methods=['DELETE', 'OPTIONS'])
+@app.route('/api/datasets/<int:dataset_id>', methods=['DELETE', 'OPTIONS', 'GET'])
 def delete_dataset(dataset_id):
     # Allow CORS preflight through
     if request.method == 'OPTIONS':
         return jsonify({}), 200
+    
+    # GET request returns name of dataset
+    if request.method == 'GET':
+        ds = Dataset.query.get_or_404(dataset_id)
+        if ds.user_id != current_user.id:
+            return jsonify({'error': 'Forbidden'}), 403
+        return jsonify({'name': ds.name}), 200
 
     # Require authentication for actual DELETE
     if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
@@ -407,6 +533,196 @@ def delete_dataset(dataset_id):
     except Exception as e:
         print(f"Error deleting dataset {dataset_id}: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    
+# ===== Model endpoints =====
+@app.route('/api/models', methods=['GET'])
+@login_required
+def list_models():
+    # List models owned by current user (optionally filter by dataset_id)
+    dataset_id = request.args.get('dataset_id', type=int)
+    query = ModelEntry.query.filter_by(user_id=current_user.id)
+    if dataset_id:
+        query = query.filter_by(dataset_id=dataset_id)
+    models = query.order_by(ModelEntry.created_at.desc()).all()
+    out = []
+    for m in models:
+        out.append({
+            'id': m.id,
+            'name': m.name,
+            'model_type': m.model_type,
+            'dataset_id': m.dataset_id,
+            'created_at': m.created_at.isoformat() if m.created_at else None,
+            'metrics': pickle.loads(m.metrics) if m.metrics else {}
+        })
+    return jsonify(out)
+
+# create model from parameters
+@app.route('/api/models', methods=['POST'])
+@login_required
+def create_model():
+    data = request.json
+    print(f"\n=== Create Model Request ===\nData: {data}")
+    name = data.get('name')
+    model_type = data.get('model_type')
+    dataset_id = data.get('dataset_id')
+    params = data.get('params', {})
+
+    if not name or not model_type:
+        return jsonify({'error': 'name and model_type required'}), 400
+    if model_type not in ['linear_regression','logistic_regression','decision_tree',
+                          'bagging','boosting','random_forest','svm','mlp','custom']:
+        return jsonify({'error': 'Invalid model_type'}), 400
+
+    ds = None
+    if dataset_id:
+        ds = Dataset.query.get_or_404(dataset_id)
+        if ds.user_id != current_user.id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+    try:
+        wrapper = ModelWrapper(model_type=model_type, model=None, params=params)
+        entry = wrapper.to_db_record(name=name, dataset_id=ds.id if ds else None, user_id=current_user.id)
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify({'msg': 'Model created', 'model_id': entry.id}), 201
+    except Exception as e:
+        return jsonify({'error': f'Failed to create model: {str(e)}'}), 500
+
+@app.route('/api/models/<int:model_id>', methods=['GET'])
+@login_required
+def get_model(model_id):
+    m = ModelEntry.query.get_or_404(model_id)
+    if m.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+    return jsonify({
+        'id': m.id,
+        'name': m.name,
+        'model_type': m.model_type,
+        'dataset_id': m.dataset_id,
+        'created_at': m.created_at.isoformat() if m.created_at else None,
+        'metrics': pickle.loads(m.metrics) if m.metrics else {}
+    })
+
+@app.route('/api/models/<int:model_id>/download', methods=['GET'])
+@login_required
+def download_model_blob(model_id):
+    m = ModelEntry.query.get_or_404(model_id)
+    if m.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+    # return pickled model as binary download
+    blob = m.model_blob
+    return (blob, 200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': f'attachment; filename=model_{m.id}.pkl'
+    })
+
+@app.route('/api/models/<int:model_id>', methods=['DELETE'])
+@login_required
+def delete_model(model_id):
+    m = ModelEntry.query.get_or_404(model_id)
+    if m.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+    db.session.delete(m)
+    db.session.commit()
+    return jsonify({'msg': 'Model deleted'})
+
+@app.route('/api/train/<int:model_id>', methods=['POST'])
+@login_required
+def train(model_id):
+    """
+    Train a model on a dataset and save it to DB.
+    Expected JSON form-data:
+      - hyperparams: optional dict of hyperparameters (JSON)
+    """
+    # Accept form-data and JSON both
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+
+    # hyperparams = request.form.get('hyperparams') or (request.json and request.json.get('hyperparams'))
+    # # hyperparams may be a JSON string if form-data; try to parse
+    # if isinstance(hyperparams, str):
+    #     try:
+    #         import json
+    #         hyperparams = json.loads(hyperparams)
+    #     except Exception:
+    #         hyperparams = {}
+    # hyperparams = hyperparams or {}
+    
+    m_entry = ModelEntry.query.get_or_404(model_id)
+    if m_entry.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+    
+    ds = Dataset.query.get_or_404(m_entry.dataset_id)
+    if not ds:
+        return jsonify({'error': 'Model has no associated dataset to train on'}), 400
+    if ds.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    # read dataset and train server-side
+    try:
+        ext = os.path.splitext(ds.name)[1].lower()
+        if ext == '.csv':
+            df = pd.read_csv(ds.file_path)
+        elif ext == '.txt':
+            df = pd.read_csv(ds.file_path, sep='\t')
+        elif ext == '.xlsx':
+            import openpyxl
+            df = pd.read_excel(ds.file_path, engine='openpyxl')
+        else:
+            return jsonify({'error': 'Unsupported dataset format for training'}), 400
+    except Exception as e:
+        return jsonify({'error': f'Could not read dataset: {e}'}), 500
+
+    if df.shape[1] < 2:
+        return jsonify({'error': 'Dataset must have at least 2 columns (features + target)'}), 400
+
+    X, y = df.iloc[:, :-1], df.iloc[:, -1]
+    # Basic train/test split; you can modify client-side to request different splits
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    try:
+        wrapper = ModelWrapper.from_db_record(m_entry)
+        wrapper.train(X_train, y_train)
+        metrics = wrapper.evaluate(X_test, y_test)
+        entry = wrapper.to_db_record(name=m_entry.name, dataset_id=ds.id, user_id=current_user.id)
+        entry.id = m_entry.id
+        # replace metrics blob with actual metrics (to ensure updated)
+        entry.metrics = pickle.dumps(wrapper.metrics)
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify({
+            'msg': 'Trained and saved model',
+            'model_id': entry.id,
+            'metrics': wrapper.metrics
+        }), 201
+    except Exception as e:
+        return jsonify({'error': f'Failed to train model: {str(e)}'}), 500
+
+@app.route('/api/models/<int:model_id>/predict', methods=['POST'])
+@login_required
+def model_predict(model_id):
+    """
+    Make predictions with a stored model. Client sends JSON:
+      { "input": [[...], [...], ...] }  # list of rows
+    Returns predictions (list).
+    """
+    m = ModelEntry.query.get_or_404(model_id)
+    if m.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+    wrapper = ModelWrapper.from_db_record(m)
+    data = request.json
+    if not data or 'input' not in data:
+        return jsonify({'error': 'Provide "input" in JSON body as list-of-rows'}), 400
+    import numpy as np
+    X_in = np.array(data['input'])
+    try:
+        preds = wrapper.predict(X_in)
+        # convert numpy arrays to python lists
+        if hasattr(preds, 'tolist'):
+            preds = preds.tolist()
+        return jsonify({'predictions': preds})
+    except Exception as e:
+        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
 # reset DB/uploads/both - for testing purposes, add fail-safe
 @app.route('/api/reset/<string:thing>', methods=['POST'])
@@ -431,19 +747,6 @@ def reset(thing):
                 print(f"Error deleting file {file_path}: {str(e)}")
         print("Uploads folder reset completed")
     return jsonify({'msg': f'Reset {thing} completed'})
-
-@app.route('/api/train/<int:dataset_id>', methods=['POST'])
-@login_required
-def train(dataset_id):
-    ds = Dataset.query.get_or_404(dataset_id)
-    df = pd.read_csv(ds.file_path)
-    X, y = df.iloc[:, :-1], df.iloc[:, -1]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = LogisticRegression(max_iter=1000)
-    model.fit(X_train, y_train)
-    preds = model.predict(X_test)
-    acc = accuracy_score(y_test, preds)
-    return jsonify({'accuracy': acc})
 
 # Create necessary directories
 if not os.path.exists('instance'):

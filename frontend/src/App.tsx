@@ -8,6 +8,7 @@ import LoginPage from "@/pages/login"
 import RegisterPage from "@/pages/register"
 import DashboardPage from "@/pages/dashboard"
 import DatasetsPage from "@/pages/datasets"
+import ModelsPage from "@/pages/models"
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -82,6 +83,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <DatasetsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/models"
+          element={
+            <ProtectedRoute>
+              <ModelsPage />
             </ProtectedRoute>
           }
         />
