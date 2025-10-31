@@ -306,7 +306,8 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         try {
           // Use a simple alert so we don't depend on a toast system which may not be available
           alert('Specification incomplete -- Dataset upload cancelled')
-        } catch (_) {}
+        } catch (_) { }
+        onUploadSuccess?.() // refresh the parent's dataset listing
       }
 
       // reset to initial selection state
