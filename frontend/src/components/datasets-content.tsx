@@ -4,7 +4,7 @@ import { Input } from "./ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DatasetCard } from "./dataset-card"
 import { Link } from "react-router-dom"
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState } from "react"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import { API_BASE_URL } from "@/constants"
 import axios from "axios"
@@ -92,20 +92,11 @@ export function DatasetsContent() {
 		}
 	}
 
-	// Derived filtered list based on search query and selected type
-	const filteredDatasets = useMemo(() => {
-		const q = searchQuery.trim().toLowerCase()
-		return datasets.filter((d) => {
-			// filter by type
-			if (selectedType !== 'all') {
-				const ext = d.name ? d.name.split('.').pop()?.toLowerCase() : ''
-				if (ext !== selectedType) return false
-			}
-			// search by name
-			if (!q) return true
-			return (d.name || '').toLowerCase().includes(q)
-		})
-	}, [datasets, searchQuery, selectedType])
+	const filteredDatasets = datasets.filter((dataset) => {
+		const matchesSearch = dataset.name.toLowerCase().includes(searchQuery.toLowerCase());
+		const matchesType = selectedType === "all" || dataset.file_path.endsWith(selectedType);
+		return matchesSearch && matchesType;
+	});
 
 	useEffect(() => {
 		fetchDatasets()
@@ -163,7 +154,6 @@ export function DatasetsContent() {
 						onClick={() => {
 							setSearchQuery("")
 							setSelectedType("all")
-							fetchDatasets()
 						}}
 					>
 						Clear Filters
@@ -191,7 +181,7 @@ export function DatasetsContent() {
 					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 						{filteredDatasets.length === 0 ? (
 								<div className="col-span-full text-center py-12">
-									<p className="text-gray-500">No datasets match your filters.</p>
+									<p className="text-gray-500">No datasets found.</p>
 								</div>
 							) : (
 								filteredDatasets.map((dataset) => {
