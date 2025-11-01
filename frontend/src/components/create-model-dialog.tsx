@@ -119,7 +119,7 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
-				<Button className="bg-blue-600 hover:bg-blue-700 text-white">{text ? text : "Create New Model"}</Button>
+				<Button className="bg-blue-600 hover:bg-blue-700 text-white cursor-pointer">{text ? text : "Create New Model"}</Button>
 			</DialogTrigger>
 			<DialogContent>
 				<DialogHeader>
