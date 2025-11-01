@@ -79,7 +79,7 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 						<CreateModelDialog
 							datasetIdInput={id}
 							text="New Model"
-							onUploadSuccess={() => {
+							onCreateSuccess={() => {
 								// Handle successful model creation
 							}}
 						/>

@@ -1,3 +1,4 @@
+import json
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -68,85 +69,84 @@ class ModelEntry(db.Model):
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text, nullable=True)
     model_type = db.Column(db.String(80), nullable=False)
-    params = db.Column(db.LargeBinary, nullable=True)
-    metrics = db.Column(db.LargeBinary, nullable=True)
+    # params and metrics stored as JSON strings
+    params = db.Column(db.String(500), nullable=True)
+    metrics = db.Column(db.String(500), nullable=True)
     model_blob = db.Column(db.LargeBinary, nullable=False)
     dataset_id = db.Column(db.Integer, db.ForeignKey('dataset.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
+    
+def preprocess(self, df, target_feature, test_split):
+    """
+    Preprocess the dataset by removing missing values, duplicates, and splitting into train/test sets.
+    
+    Args:
+        df: pandas DataFrame containing the dataset
+        target_feature: name of the target column
+        test_split: percentage of data to use for testing (e.g., 20 for 20%)
+    
+    Returns:
+        tuple: (X_train, X_test, y_train, y_test, preprocessing_info)
+    """
+    # Store original shape
+    original_rows = df.shape[0]
+    
+    # Remove rows with missing values
+    df_cleaned = df.dropna()
+    rows_after_missing = df_cleaned.shape[0]
+    missing_removed = original_rows - rows_after_missing
+    
+    # Remove duplicate rows
+    df_cleaned = df_cleaned.drop_duplicates()
+    rows_after_duplicates = df_cleaned.shape[0]
+    duplicates_removed = rows_after_missing - rows_after_duplicates
+    
+    # Separate features and target
+    if target_feature and target_feature in df_cleaned.columns:
+        y = df_cleaned[target_feature]
+        X = df_cleaned.drop(columns=[target_feature])
+    else:
+        # Fallback to last column as target
+        X = df_cleaned.iloc[:, :-1]
+        y = df_cleaned.iloc[:, -1]
+    
+    # Convert test_split percentage to decimal (e.g., 20 -> 0.20)
+    test_size = test_split / 100.0
+    # Ensure test_size is within valid range
+    test_size = max(0.01, min(0.99, test_size))
+    
+    # Split into train and test sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=42
+    )
+    
+    # Create preprocessing info dictionary
+    preprocessing_info = {
+        'original_rows': original_rows,
+        'missing_values_removed': missing_removed,
+        'duplicates_removed': duplicates_removed,
+        'final_rows': rows_after_duplicates,
+        'test_split_percentage': test_split,
+        'test_size_decimal': test_size,
+        'train_samples': len(X_train),
+        'test_samples': len(X_test)
+    }
+    
+    return X_train, X_test, y_train, y_test, preprocessing_info
     
 # ===== Model wrapper/helper =====
 class ModelWrapper:
     """
     Thin wrapper to standardize training/predicting and DB serialization.
     model_type: one of ('linear_regression','logistic_regression','decision_tree',
-                       'bagging','boosting','random_forest','svm','mlp','custom')
-    For 'custom' we accept an uploaded pickled model file which will be stored as-is.
+                       'bagging','boosting','random_forest','svm','mlp')
     """
     def __init__(self, model_type, model=None, params=None):
         self.model_type = model_type
         self.model = model
         self.params = params or {}
         self.metrics = {}
-
-    def preprocess(self, df, target_feature, test_split):
-        """
-        Preprocess the dataset by removing missing values, duplicates, and splitting into train/test sets.
-        
-        Args:
-            df: pandas DataFrame containing the dataset
-            target_feature: name of the target column
-            test_split: percentage of data to use for testing (e.g., 20 for 20%)
-        
-        Returns:
-            tuple: (X_train, X_test, y_train, y_test, preprocessing_info)
-        """
-        # Store original shape
-        original_rows = df.shape[0]
-        
-        # Remove rows with missing values
-        df_cleaned = df.dropna()
-        rows_after_missing = df_cleaned.shape[0]
-        missing_removed = original_rows - rows_after_missing
-        
-        # Remove duplicate rows
-        df_cleaned = df_cleaned.drop_duplicates()
-        rows_after_duplicates = df_cleaned.shape[0]
-        duplicates_removed = rows_after_missing - rows_after_duplicates
-        
-        # Separate features and target
-        if target_feature and target_feature in df_cleaned.columns:
-            y = df_cleaned[target_feature]
-            X = df_cleaned.drop(columns=[target_feature])
-        else:
-            # Fallback to last column as target
-            X = df_cleaned.iloc[:, :-1]
-            y = df_cleaned.iloc[:, -1]
-        
-        # Convert test_split percentage to decimal (e.g., 20 -> 0.20)
-        test_size = test_split / 100.0
-        # Ensure test_size is within valid range
-        test_size = max(0.01, min(0.99, test_size))
-        
-        # Split into train and test sets
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42
-        )
-        
-        # Create preprocessing info dictionary
-        preprocessing_info = {
-            'original_rows': original_rows,
-            'missing_values_removed': missing_removed,
-            'duplicates_removed': duplicates_removed,
-            'final_rows': rows_after_duplicates,
-            'test_split_percentage': test_split,
-            'test_size_decimal': test_size,
-            'train_samples': len(X_train),
-            'test_samples': len(X_test)
-        }
-        
-        return X_train, X_test, y_train, y_test, preprocessing_info
-
 
     def train(self, X, y, **train_kwargs):
         # X,y are pandas or numpy-like
@@ -187,13 +187,14 @@ class ModelWrapper:
 
     def to_db_record(self, name, dataset_id, user_id):
         model_blob = pickle.dumps(self.model)
-        params_blob = pickle.dumps(self.params)
-        metrics_blob = pickle.dumps(self.metrics)
+        # convert params and metrics to json strings
+        params = json.dumps(self.params)
+        metrics = json.dumps(self.metrics)
         return ModelEntry(
             name=name,
             model_type=self.model_type,
-            params=params_blob,
-            metrics=metrics_blob,
+            params=params,
+            metrics=metrics,
             model_blob=model_blob,
             dataset_id=dataset_id,
             user_id=user_id
@@ -201,8 +202,9 @@ class ModelWrapper:
 
     @staticmethod
     def from_db_record(record: ModelEntry):
-        params = pickle.loads(record.params) if record.params else {}
-        metrics = pickle.loads(record.metrics) if record.metrics else {}
+        # convert params and metrics from json strings to dicts
+        params = json.loads(record.params) if record.params else {}
+        metrics = json.loads(record.metrics) if record.metrics else {}
         model = pickle.loads(record.model_blob)
         wrapper = ModelWrapper(model_type=record.model_type, model=model, params=params)
         wrapper.metrics = metrics
@@ -228,7 +230,6 @@ class ModelWrapper:
             return SVC(**(params or {}))
         if model_type == 'mlp':
             return MLPClassifier(**(params or {}))
-        # 'custom' must be provided as an already pickled/fitted model by user
         raise ValueError(f"Unknown model_type: {model_type}")
 
 @login_manager.user_loader
@@ -686,7 +687,8 @@ def list_models():
             'model_type': m.model_type,
             'dataset_id': m.dataset_id,
             'created_at': m.created_at.isoformat() if m.created_at else None,
-            'metrics': pickle.loads(m.metrics) if m.metrics else {}
+            'params': json.loads(m.params) if m.params else {},
+            'metrics': json.loads(m.metrics) if m.metrics else {}
         })
     return jsonify(out)
 
@@ -722,23 +724,41 @@ def create_model():
         db.session.commit()
         return jsonify({'msg': 'Model created', 'model_id': entry.id}), 201
     except Exception as e:
+        print(f"Error creating model: {str(e)}")
         return jsonify({'error': f'Failed to create model: {str(e)}'}), 500
 
-@app.route('/api/models/<int:model_id>', methods=['GET'])
+@app.route('/api/models/<int:model_id>', methods=['GET', 'PUT'])
 @login_required
 def get_model(model_id):
     m = ModelEntry.query.get_or_404(model_id)
     if m.user_id != current_user.id:
         return jsonify({'error': 'Forbidden'}), 403
-    return jsonify({
-        'id': m.id,
-        'name': m.name,
-        'description': m.description if hasattr(m, 'description') else 'No description',
-        'model_type': m.model_type,
-        'dataset_id': m.dataset_id,
-        'created_at': m.created_at.isoformat() if m.created_at else None,
-        'metrics': pickle.loads(m.metrics) if m.metrics else {}
-    })
+    if request.method == 'PUT':
+        # update model params from params arg
+        data = request.json
+        params = data.get('params')
+        if not isinstance(params, dict):
+            return jsonify({'error': 'params must be a dict'}), 400
+        wrapper = ModelWrapper.from_db_record(m)
+        wrapper = ModelWrapper(model_type=m.model_type, model=wrapper.model, params=params)
+        entry = wrapper.to_db_record(name=m.name, dataset_id=m.dataset_id, user_id=m.user_id)
+        entry.id = m.id  # keep same ID
+        entry.description = m.description
+        db.session.merge(entry)
+        db.session.commit()
+        print(f"Model {m.id} updated with new params: {params}")
+        return jsonify({'msg': 'Model updated'}), 200
+    if request.method == 'GET':
+        return jsonify({
+            'id': m.id,
+            'name': m.name,
+            'description': m.description if hasattr(m, 'description') else 'No description',
+            'model_type': m.model_type,
+            'dataset_id': m.dataset_id,
+            'created_at': m.created_at.isoformat() if m.created_at else None,
+            'params': json.loads(m.params) if m.params else {},
+            'metrics': json.loads(m.metrics) if m.metrics else {}
+        })
 
 @app.route('/api/models/<int:model_id>/download', methods=['GET'])
 @login_required
@@ -762,6 +782,7 @@ def delete_model(model_id):
     db.session.delete(m)
     db.session.commit()
     return jsonify({'msg': 'Model deleted'})
+
 def read_dataset_file(file_path: str):
     ext = os.path.splitext(file_path)[1].lower()
     try:
@@ -776,6 +797,7 @@ def read_dataset_file(file_path: str):
             raise ValueError(f'Unsupported file format: {ext}')
     except Exception as e:
         raise ValueError(f'Failed to read dataset: {str(e)}')
+    
 @app.route('/api/datasets/<int:dataset_id>/preprocess', methods=['POST', 'OPTIONS'])
 @login_required
 def preprocess_dataset(dataset_id):
@@ -920,8 +942,7 @@ def train(model_id):
         metrics = wrapper.evaluate(X_test, y_test)
         entry = wrapper.to_db_record(name=m_entry.name, dataset_id=ds.id, user_id=current_user.id)
         entry.id = m_entry.id
-        # replace metrics blob with actual metrics (to ensure updated)
-        entry.metrics = pickle.dumps(wrapper.metrics)
+        entry.metrics = json.dumps(metrics)
         db.session.add(entry)
         db.session.commit()
         return jsonify({

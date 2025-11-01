@@ -34,7 +34,7 @@ interface ModelCardProps {
 	onDownload?: () => void
 }
 
-export function ModelCard({ id, name, description, model_type, created_at, datasetId, metrics, error, onDelete, onDownload }: ModelCardProps) {
+export function ModelCard({ id, name, description, model_type, created_at, datasetId, params, metrics, error, onDelete, onDownload }: ModelCardProps) {
 	const datasetNameFromID = async (id: number) => {
 		name = await fetch(`http://localhost:5000/api/datasets/${id}`, {
 			method: 'GET',
@@ -86,6 +86,20 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 						<span className="text-gray-900">{datasetName}</span>
 					</div>
 				</div>
+
+				{/* Parameters */}
+				{params && Object.keys(params).length > 0 && (
+					<div className="mb-6">
+						<h3 className="text-sm font-medium text-gray-700 mb-2">Parameters:</h3>
+						<ul className="list-disc list-inside text-sm text-gray-600">
+							{Object.entries(params).map(([key, value]) => (
+								<li key={key}>
+									<span className="font-semibold">{key.replace('_', ' ')}:</span> {String(value)}
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
 
 				{/* Metrics */}
 				<div className="grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-gray-200">

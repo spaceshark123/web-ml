@@ -16,6 +16,7 @@ export interface Model {
 	created_at: string
 	model_type: 'linear_regression' | 'logistic_regression' | 'decision_tree' | 'bagging' | 'boosting' | 'random_forest' | 'svm' | 'mlp'
 	dataset_id: number
+	params?: Record<string, any> // params for model (e.g. n_estimators, layers, etc.)
 	metrics: {
 		accuracy?: number
 		precision?: number
@@ -129,7 +130,7 @@ export function ModelsContent() {
 						<p className="text-gray-500">Manage and explore your models</p>
 					</div>
 					<div className="flex gap-3">
-						<CreateModelDialog onUploadSuccess={fetchModels} />
+						<CreateModelDialog onCreateSuccess={fetchModels} refreshModelsList={fetchModels} />
 					</div>
 				</div>
 			</div>
@@ -233,6 +234,7 @@ export function ModelsContent() {
 										created_at={model.created_at ? new Date(model.created_at).toLocaleDateString() : 'Unknown'}
 										model_type={model.model_type}
 										datasetId={model.dataset_id}
+										params={model.params}
 										metrics={model.metrics}
 										error={model.error}
 										onDelete={handleDelete}

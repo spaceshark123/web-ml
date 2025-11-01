@@ -15,18 +15,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 interface CreateModelDialogProps {
 	datasetIdInput?: number
 	text?: string
-	onUploadSuccess?: () => void
+	onCreateSuccess?: () => void
+	refreshModelsList?: () => void
 }
 
-export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: CreateModelDialogProps) {
+export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refreshModelsList }: CreateModelDialogProps) {
 	const [open, setOpen] = useState(false)
+	const [config, setConfig] = useState(false) // flag for if config UI should be shown
+	const [completed, setCompleted] = useState(false) // flag for if model creation is completed or if it should be deleted on close
 	const [type, setType] = useState("")
+	const [modelId, setModelId] = useState(-1)
 	const [datasetId, setDatasetId] = useState(-1)
 	const [customName, setCustomName] = useState("")
 	const [description, setDescription] = useState("")
 	const [uploading, setUploading] = useState(false)
-	const [datasets, setDatasets] = useState<Array<{id: number, name: string}>>([])
+	const [datasets, setDatasets] = useState<Array<{ id: number, name: string }>>([])
 	const [error, setError] = useState("")
+	const [params, setParams] = useState<Record<string, any>>({}) // additional params for model
 
 	const handleUpload = async () => {
 		setUploading(true)
@@ -72,16 +77,84 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 			if (data.error) {
 				throw new Error(data.error)
 			}
-			onUploadSuccess?.()
-			setOpen(false)
-			setType("")
-			setDatasetId(-1)
-			setCustomName("")
+			onCreateSuccess?.()
+			setConfig(true)
+			if (data.model_id) {
+				setModelId(data.model_id)
+			} else {
+				throw new Error("Invalid response from server: missing model ID")
+			}
+			// setType("")
+			// setDatasetId(-1)
+			// setCustomName("")
+			// setParams({})
+			// setDescription("")
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to create model. Please try again.")
 		} finally {
 			setUploading(false)
 		}
+	}
+
+	const handleSetParams = async () => {
+		// validate params 
+		setError("")
+		if (!params || Object.keys(params).length === 0) {
+			setError("Please provide model parameters")
+			return
+		}
+		// if any one of params is -1, show error
+		for (const key in params) {
+			if (params[key] === -1) {
+				setError("Please provide valid model parameters")
+				return
+			}
+		}
+
+		if (modelId === -1) {
+			setError("Invalid model ID. Please try again.")
+			return
+		}
+
+		// Send params to backend to update model
+		try {
+			const response = await fetch(`http://localhost:5000/api/models/${modelId}`, {
+				method: "PUT",
+				body: JSON.stringify({
+					params: params,
+				}),
+				credentials: "include",
+				headers: {
+					'Accept': 'application/json',
+					'Content-Type': 'application/json'
+				},
+			})
+
+			if (!response.ok) {
+				throw new Error("Failed to set model parameters. Please try again.")
+			}
+
+			const data = await response.json()
+			if (data.error) {
+				throw new Error(data.error)
+			}
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to set model parameters. Please try again.")
+		}
+
+		resetForm()
+		onCreateSuccess?.()
+	}
+
+	const resetForm = () => {
+		setType("")
+		setDatasetId(-1)
+		setCustomName("")
+		setParams({})
+		setDescription("")
+		setError("")
+		setConfig(false)
+		setModelId(-1)
 	}
 
 	const getAvailableDatasets = async () => {
@@ -107,6 +180,26 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 		return data
 	}
 
+	const handleDelete = async () => {
+		try {
+			const response = await fetch(`http://localhost:5000/api/models/${modelId}`, {
+				method: 'DELETE',
+				credentials: 'include',
+			});
+
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+				const msg = data?.error || 'Failed to delete model';
+				console.error('Delete failed', msg)
+				alert(`Failed to delete model: ${msg}`)
+				return
+			}
+		} catch (error) {
+			console.error('Error deleting model:', error);
+			alert('Failed to delete model. See console for details.')
+		}
+	};
+
 	useEffect(() => {
 		if (open && datasets.length === 0) {
 			getAvailableDatasets()
@@ -114,6 +207,16 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 		if (datasetIdInput) {
 			setDatasetId(datasetIdInput)
 		}
+		if (!open) {
+			setConfig(false)
+			if (modelId !== -1 && !completed) {
+				console.log("Deleting incomplete model with ID:", modelId)
+				handleDelete().then(() => {
+					refreshModelsList?.()
+				})
+			}
+		}
+		setCompleted(false)
 	}, [open])
 
 	return (
@@ -123,85 +226,159 @@ export function CreateModelDialog({ datasetIdInput, text, onUploadSuccess }: Cre
 			</DialogTrigger>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Create New Model</DialogTitle>
+					<DialogTitle>{config ? "Model Specifications" : "Create New Model"}</DialogTitle>
 					<DialogDescription>
-						Fill in the details below to create a new model.
+						{config ? "Review the specifications for the new model before creating it." : "Fill in the details below to create a new model."}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-4 py-4">
-					<div className="space-y-2">
-						<Label htmlFor="custom-name">Model Name</Label>
-						<Input
-							id="custom-name"
-							type="text"
-							value={customName}
-							onChange={(e) => setCustomName(e.target.value)}
-							placeholder="Enter model name"
-						/>
+				{!config && (<>
+					<div className="space-y-4 py-4">
+						<div className="space-y-2">
+							<Label htmlFor="custom-name">Model Name</Label>
+							<Input
+								id="custom-name"
+								type="text"
+								value={customName}
+								onChange={(e) => setCustomName(e.target.value)}
+								placeholder="Enter model name"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="custom-description">Model Description</Label>
+							<Input
+								id="custom-description"
+								type="text"
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+								placeholder="Enter model description"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="model-type">Model Type</Label>
+							<Select
+								onValueChange={(value) => setType(value)}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue placeholder="Select model type" />
+								</SelectTrigger>
+								<SelectContent className="bg-white">
+									<SelectItem value="linear_regression" className="hover:bg-gray-200">Linear Regression</SelectItem>
+									<SelectItem value="logistic_regression" className="hover:bg-gray-200">Logistic Regression</SelectItem>
+									<SelectItem value="decision_tree" className="hover:bg-gray-200">Decision Tree</SelectItem>
+									<SelectItem value="bagging" className="hover:bg-gray-200">Bagging</SelectItem>
+									<SelectItem value="boosting" className="hover:bg-gray-200">Boosting</SelectItem>
+									<SelectItem value="random_forest" className="hover:bg-gray-200">Random Forest</SelectItem>
+									<SelectItem value="svm" className="hover:bg-gray-200">SVM</SelectItem>
+									<SelectItem value="mlp" className="hover:bg-gray-200">MLP</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="file">Target Dataset</Label>
+							<Select
+								onValueChange={(value) => setDatasetId(parseInt(value))}
+								defaultValue={datasetIdInput ? datasetIdInput.toString() : undefined}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue placeholder="Select a dataset" />
+								</SelectTrigger>
+								<SelectContent className="bg-white">
+									{datasets && datasets.map((dataset) => {
+										return (
+											<SelectItem key={dataset.id} value={dataset.id.toString()} className="hover:bg-gray-200">{dataset.name}</SelectItem>
+										)
+									})}
+								</SelectContent>
+							</Select>
+						</div>
+						{error && <p className="text-sm text-red-500">{error}</p>}
 					</div>
-					<div className="space-y-2">
-						<Label htmlFor="custom-description">Model Description</Label>
-						<Input
-							id="custom-description"
-							type="text"
-							value={description}
-							onChange={(e) => setDescription(e.target.value)}
-							placeholder="Enter model description"
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="model-type">Model Type</Label>
-						<Select
-							onValueChange={(value) => setType(value)}
+					<div className="flex justify-end gap-3">
+						<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => { setOpen(false); resetForm(); }}>
+							Cancel
+						</Button>
+						<Button
+							className="bg-blue-600 hover:bg-blue-700 text-white"
+							onClick={handleUpload}
+							disabled={!type || datasetId === -1 || !customName.trim() || uploading}
 						>
-							<SelectTrigger className="w-full">
-								<SelectValue placeholder="Select model type" />
-							</SelectTrigger>
-							<SelectContent className = "bg-white">
-								<SelectItem value="linear_regression" className="hover:bg-gray-200">Linear Regression</SelectItem>
-								<SelectItem value="logistic_regression" className="hover:bg-gray-200">Logistic Regression</SelectItem>
-								<SelectItem value="decision_tree" className="hover:bg-gray-200">Decision Tree</SelectItem>
-								<SelectItem value="bagging" className="hover:bg-gray-200">Bagging</SelectItem>
-								<SelectItem value="boosting" className="hover:bg-gray-200">Boosting</SelectItem>
-								<SelectItem value="random_forest" className="hover:bg-gray-200">Random Forest</SelectItem>
-								<SelectItem value="svm" className="hover:bg-gray-200">SVM</SelectItem>
-								<SelectItem value="mlp" className="hover:bg-gray-200">MLP</SelectItem>
-							</SelectContent>
-						</Select>
+							{uploading ? "Uploading..." : "Upload"}
+						</Button>
 					</div>
-					<div className="space-y-2">
-						<Label htmlFor="file">Target Dataset</Label>
-						<Select
-							onValueChange={(value) => setDatasetId(parseInt(value))}
-							defaultValue={datasetIdInput ? datasetIdInput.toString() : undefined}	
+				</>)}
+				{config && (<>
+					{type === "linear_regression" && (
+						<div className="space-y-2">
+							<p>Linear Regression has no additional parameters to configure.</p>
+						</div>
+					)}
+					{type === "logistic_regression" && (
+						<div className="space-y-2">
+							<p>Logistic Regression has no additional parameters to configure.</p>
+						</div>
+					)}
+					{type === "decision_tree" && (
+						<div className="space-y-2">
+							{/* max_depth, criterion*/}
+							<div className="space-y-2">
+								<Label htmlFor="criteria">Criteria</Label>
+								<Select
+									value={params.criterion || (() => { 
+										setParams({ ...params, criterion: "gini" })
+										return "gini"
+									})()}
+									onValueChange={(value) => {
+										setParams({ ...params, criterion: value })
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="Select criteria" />
+									</SelectTrigger>
+									<SelectContent className="bg-white">
+										<SelectItem value="gini" className="hover:bg-gray-200">Gini</SelectItem>
+										<SelectItem value="entropy" className="hover:bg-gray-200">Entropy</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="max-depth">Max Depth</Label>
+								<Input
+									id="max-depth"
+									type="number"
+									min={1}
+									max={10}
+									value={params.max_depth || (() => {
+										setParams({ ...params, max_depth: 5 })
+										return 5
+									})()}
+									onChange={(e) => setParams({ ...params, max_depth: Number(e.target.value) })}
+									placeholder="Enter max depth (e.g., 5)"
+								/>
+							</div>
+						</div>
+					)}
+					<div className="flex justify-end gap-3">
+						<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => {
+							setOpen(false)
+							handleDelete()
+							resetForm()
+						}}>
+							Cancel
+						</Button>
+						<Button
+							className="bg-blue-600 hover:bg-blue-700 text-white"
+							onClick={() => {
+								setCompleted(true)
+								setOpen(false)
+								handleSetParams()
+								onCreateSuccess?.()
+							}}
 						>
-							<SelectTrigger className="w-full">
-								<SelectValue placeholder="Select a dataset" />
-							</SelectTrigger>
-							<SelectContent className="bg-white">
-								{datasets && datasets.map((dataset) => {
-									return (
-										<SelectItem key={dataset.id} value={dataset.id.toString()} className="hover:bg-gray-200">{dataset.name}</SelectItem>
-									)
-								})}
-							</SelectContent>
-						</Select>
+							Create Model
+						</Button>
 					</div>
-					{error && <p className="text-sm text-red-500">{error}</p>}
-				</div>
-				<div className="flex justify-end gap-3">
-					<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => setOpen(false)}>
-						Cancel
-					</Button>
-					<Button
-						className="bg-blue-600 hover:bg-blue-700 text-white"
-						onClick={handleUpload}
-						disabled={!type || datasetId === -1 || !customName.trim() || uploading}
-					>
-						{uploading ? "Uploading..." : "Upload"}
-					</Button>
-				</div>
+				</>)}
 			</DialogContent>
-		</Dialog>
+		</Dialog >
 	)
 }
