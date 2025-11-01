@@ -317,68 +317,132 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 							<p>Logistic Regression has no additional parameters to configure.</p>
 						</div>
 					)}
-					{type === "decision_tree" && (
+					{(type === "decision_tree" || type === "random_forest") && (
 						<div className="space-y-2">
-							{/* max_depth, criterion*/}
-							<div className="space-y-2">
-								<Label htmlFor="criteria">Criteria</Label>
-								<Select
-									value={params.criterion || (() => { 
-										setParams({ ...params, criterion: "gini" })
-										return "gini"
-									})()}
-									onValueChange={(value) => {
-										setParams({ ...params, criterion: value })
-									}}
-								>
-									<SelectTrigger className="w-full">
-										<SelectValue placeholder="Select criteria" />
-									</SelectTrigger>
-									<SelectContent className="bg-white">
-										<SelectItem value="gini" className="hover:bg-gray-200">Gini</SelectItem>
-										<SelectItem value="entropy" className="hover:bg-gray-200">Entropy</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="max-depth">Max Depth</Label>
-								<Input
-									id="max-depth"
-									type="number"
-									min={1}
-									max={10}
-									value={params.max_depth || (() => {
-										setParams({ ...params, max_depth: 5 })
-										return 5
-									})()}
-									onChange={(e) => setParams({ ...params, max_depth: Number(e.target.value) })}
-									placeholder="Enter max depth (e.g., 5)"
-								/>
-							</div>
+							<Label htmlFor="criteria">Criteria</Label>
+							<Select
+								value={params.criterion || (() => {
+									setParams({ ...params, criterion: "gini" })
+									return "gini"
+								})()}
+								onValueChange={(value) => {
+									setParams({ ...params, criterion: value })
+								}}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue placeholder="Select criteria" />
+								</SelectTrigger>
+								<SelectContent className="bg-white">
+									<SelectItem value="gini" className="hover:bg-gray-200">Gini</SelectItem>
+									<SelectItem value="entropy" className="hover:bg-gray-200">Entropy</SelectItem>
+								</SelectContent>
+							</Select>
 						</div>
 					)}
-					<div className="flex justify-end gap-3">
-						<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => {
+					{(type === "decision_tree" || type === "random_forest") && (
+						<div className="space-y-2">
+							<Label htmlFor="max-depth">Max Depth</Label>
+							<Input
+								id="max-depth"
+								type="number"
+								min={1}
+								max={10}
+								value={params.max_depth || (() => {
+									setParams({ ...params, max_depth: 5 })
+									return 5
+								})()}
+								onChange={(e) => setParams({ ...params, max_depth: Number(e.target.value) })}
+								placeholder="Enter max depth (e.g., 5)"
+							/>
+						</div>
+					)}
+					{(type === "random_forest" || type === "bagging" || type === "boosting") && (
+						<div className="space-y-2">
+							<Label htmlFor="n-estimators">Number of Estimators</Label>
+							<Input
+								id="n-estimators"
+								type="number"
+								min={1}
+								max={100}
+								value={params.n_estimators || (() => {
+									setParams({ ...params, n_estimators: 10 })
+									return 10
+								})()}
+								onChange={(e) => setParams({ ...params, n_estimators: Number(e.target.value) })}
+								placeholder="Enter number of estimators (e.g., 10)"
+							/>
+						</div>
+					)}
+					{(type === "boosting") && (
+						<div className="space-y-2">
+							<Label htmlFor="learning-rate">Learning Rate</Label>
+							<Input
+								id="learning-rate"
+								type="number"
+								min={0.0001}
+								max={5.0}
+								step={0.001}
+								value={params.learning_rate || (() => {
+									if (type === "boosting") {
+										setParams({ ...params, learning_rate: 1 })
+										return 1
+									} else {
+										setParams({ ...params, learning_rate: 0.01 })
+										return 0.01
+									}
+								})()}
+								onChange={(e) => setParams({ ...params, learning_rate: Number(e.target.value) })}
+								placeholder="Enter learning rate (e.g., 0.1)"
+							/>
+						</div>
+					)}
+					{(type === "svm") && (
+						<div className="space-y-2">
+							<Label htmlFor="kernel">Kernel</Label>
+							<Select
+								value={params.kernel || (() => {
+									setParams({ ...params, kernel: "rbf" })
+									return "rbf"
+								})()}
+								onValueChange={(value) => {
+									setParams({ ...params, kernel: value })
+								}}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue placeholder="Select kernel" />
+								</SelectTrigger>
+								<SelectContent className="bg-white">
+									<SelectItem value="linear" className="hover:bg-gray-200">Linear</SelectItem>
+									<SelectItem value="poly" className="hover:bg-gray-200">Polynomial</SelectItem>
+									<SelectItem value="rbf" className="hover:bg-gray-200">RBF</SelectItem>
+									<SelectItem value="sigmoid" className="hover:bg-gray-200">Sigmoid</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+					)}
+					{error && <p className="text-sm text-red-500">{error}</p>}
+				<div className="flex justify-end gap-3">
+					<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => {
+						setOpen(false)
+						handleDelete()
+						resetForm()
+					}}>
+						Cancel
+					</Button>
+					<Button
+						className="bg-blue-600 hover:bg-blue-700 text-white"
+						onClick={() => {
+							setCompleted(true)
 							setOpen(false)
-							handleDelete()
-							resetForm()
-						}}>
-							Cancel
-						</Button>
-						<Button
-							className="bg-blue-600 hover:bg-blue-700 text-white"
-							onClick={() => {
-								setCompleted(true)
-								setOpen(false)
-								handleSetParams()
-								onCreateSuccess?.()
-							}}
-						>
-							Create Model
-						</Button>
-					</div>
-				</>)}
-			</DialogContent>
+							handleSetParams()
+							onCreateSuccess?.()
+						}}
+					>
+						Create Model
+					</Button>
+				</div>
+			</>)}
+		</DialogContent>
 		</Dialog >
 	)
 }
