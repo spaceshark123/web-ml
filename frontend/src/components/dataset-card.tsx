@@ -83,15 +83,15 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 								// Handle successful model creation
 							}}
 						/>
-						<Button className="bg-green-600 hover:bg-green-700 text-white">Train Model</Button>
+						<Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">Train Model</Button>
 					</div>
 					<div className="grid grid-cols-2 gap-2">
-						<Button variant='outline' className="border-gray-300 hover:bg-blue-50 bg-transparent text-blue-600">View</Button>
-						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent" onClick={onDownload}>
+						<Button variant='outline' className="border-gray-300 hover:bg-blue-50 bg-transparent text-blue-600 cursor-pointer">View</Button>
+						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent cursor-pointer" onClick={onDownload}>
 							Download
 						</Button>
 					</div>
-					<Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700 text-white" onClick={onDelete}>
+					<Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700 text-white cursor-pointer" onClick={onDelete}>
 						Delete
 					</Button>
 				</div>

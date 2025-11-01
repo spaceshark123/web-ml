@@ -29,6 +29,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
   const [targetVariable, setTargetVariable] = useState<string | null>(null)
   const [splitPercent, setSplitPercent] = useState<number>(20)
   const [datasetId, setDatasetId] = useState<number | null>(null)
+  const [preprocessing, setPreprocessing] = useState(false)
   const MAX_BYTES = 200 * 1024 * 1024 // 200 MB
   const uploadAbortCtrlRef = useRef<AbortController | null>(null)
 
@@ -271,6 +272,24 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         const msg = body && typeof body === 'object' && body.error ? body.error : (typeof body === 'string' && body) || `Failed to save specs (${res.status})`
         throw new Error(msg)
       }
+      setPreprocessing(true)
+      const preprocessingRes = await fetch(`http://localhost:5000/api/datasets/${datasetId}/preprocess`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      let preprocessBody: any = null
+      const preprocessCt = preprocessingRes.headers.get('content-type')
+      if (preprocessCt && preprocessCt.includes('application/json')) {
+        preprocessBody = await preprocessingRes.json().catch(() => null)
+      } else {
+        preprocessBody = await preprocessingRes.text().catch(() => null)
+      }
+
+      if (!preprocessingRes.ok) {
+        const msg = preprocessBody && typeof preprocessBody === 'object' && preprocessBody.error ? preprocessBody.error : (typeof preprocessBody === 'string' && preprocessBody) || `Failed to preprocess dataset (${preprocessingRes.status})`
+        throw new Error(msg)
+      }
 
       // success - close and reset
       setOpen(false)
@@ -284,6 +303,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setDatasetId(null)
       setError('')
       onUploadSuccess?.()
+      setPreprocessing(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save specifications')
     }
@@ -377,11 +397,11 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
               {error && <p className="text-sm text-red-500">{error}</p>}
             </div>
             <div className="flex justify-end gap-3">
-              <Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={handleCancel}>
+              <Button variant="outline" className="bg-gray-100 hover:bg-gray-200 cursor-pointer" onClick={handleCancel}>
                 Cancel
               </Button>
               <Button
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className="bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
                 onClick={handleUpload}
                 disabled={!file || uploading}
               >
@@ -404,12 +424,12 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                 {columns && columns.length > 0 ? (
                   <div>
                     <Select value={targetVariable ?? undefined} onValueChange={(v) => setTargetVariable(v)}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="w-full cursor-pointer">
                         <SelectValue placeholder="Select target variable" />
                       </SelectTrigger>
                       <SelectContent className="bg-white">
                         {columns.map((c) => (
-                          <SelectItem key={c} value={c} className="hover:bg-gray-200">{c}</SelectItem>
+                          <SelectItem key={c} value={c} className="hover:bg-gray-200 cursor-pointer">{c}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -445,10 +465,10 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
               {error && <p className="text-sm text-red-500">{error}</p>}
             </div>
             <div className="flex justify-end gap-3">
-              <Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={handleCancel}>
+              <Button variant="outline" className="bg-gray-100 hover:bg-gray-200 cursor-pointer" onClick={handleCancel} disabled={preprocessing}>
                 Cancel
               </Button>
-              <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleSubmitSpecs}>
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white cursor-pointer" onClick={handleSubmitSpecs} disabled={preprocessing}>
                 Save Specifications
               </Button>
             </div>

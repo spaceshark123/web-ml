@@ -139,20 +139,20 @@ export function DatasetsContent() {
 						/>
 					</div>
 					<Select value={selectedType} onValueChange={(v) => setSelectedType(v)}>
-						<SelectTrigger className="w-27 bg-white border-gray-300">
+						<SelectTrigger className="w-27 bg-white border-gray-300 cursor-pointer">
 							<SelectValue placeholder="All Types" />
 						</SelectTrigger>
 						<SelectContent className="bg-white" >
-							<SelectItem value="all" className="hover:bg-gray-200">All Types</SelectItem>
-							<SelectItem value="csv" className="hover:bg-gray-200">CSV</SelectItem>
-							<SelectItem value="xlsx" className="hover:bg-gray-200">XLSX</SelectItem>
-							<SelectItem value="txt" className="hover:bg-gray-200">TXT</SelectItem>
-							<SelectItem value="json" className="hover:bg-gray-200">JSON</SelectItem>
+							<SelectItem value="all" className="hover:bg-gray-200 cursor-pointer">All Types</SelectItem>
+							<SelectItem value="csv" className="hover:bg-gray-200 cursor-pointer">CSV</SelectItem>
+							<SelectItem value="xlsx" className="hover:bg-gray-200 cursor-pointer">XLSX</SelectItem>
+							<SelectItem value="txt" className="hover:bg-gray-200 cursor-pointer">TXT</SelectItem>
+							<SelectItem value="json" className="hover:bg-gray-200 cursor-pointer">JSON</SelectItem>
 						</SelectContent>
 					</Select>
 					<Button
 						variant="outline"
-						className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent"
+						className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent cursor-pointer"
 						onClick={() => {
 							setSearchQuery("")
 							setSelectedType("all")

@@ -89,6 +89,65 @@ class ModelWrapper:
         self.params = params or {}
         self.metrics = {}
 
+    def preprocess(self, df, target_feature, test_split):
+        """
+        Preprocess the dataset by removing missing values, duplicates, and splitting into train/test sets.
+        
+        Args:
+            df: pandas DataFrame containing the dataset
+            target_feature: name of the target column
+            test_split: percentage of data to use for testing (e.g., 20 for 20%)
+        
+        Returns:
+            tuple: (X_train, X_test, y_train, y_test, preprocessing_info)
+        """
+        # Store original shape
+        original_rows = df.shape[0]
+        
+        # Remove rows with missing values
+        df_cleaned = df.dropna()
+        rows_after_missing = df_cleaned.shape[0]
+        missing_removed = original_rows - rows_after_missing
+        
+        # Remove duplicate rows
+        df_cleaned = df_cleaned.drop_duplicates()
+        rows_after_duplicates = df_cleaned.shape[0]
+        duplicates_removed = rows_after_missing - rows_after_duplicates
+        
+        # Separate features and target
+        if target_feature and target_feature in df_cleaned.columns:
+            y = df_cleaned[target_feature]
+            X = df_cleaned.drop(columns=[target_feature])
+        else:
+            # Fallback to last column as target
+            X = df_cleaned.iloc[:, :-1]
+            y = df_cleaned.iloc[:, -1]
+        
+        # Convert test_split percentage to decimal (e.g., 20 -> 0.20)
+        test_size = test_split / 100.0
+        # Ensure test_size is within valid range
+        test_size = max(0.01, min(0.99, test_size))
+        
+        # Split into train and test sets
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=42
+        )
+        
+        # Create preprocessing info dictionary
+        preprocessing_info = {
+            'original_rows': original_rows,
+            'missing_values_removed': missing_removed,
+            'duplicates_removed': duplicates_removed,
+            'final_rows': rows_after_duplicates,
+            'test_split_percentage': test_split,
+            'test_size_decimal': test_size,
+            'train_samples': len(X_train),
+            'test_samples': len(X_test)
+        }
+        
+        return X_train, X_test, y_train, y_test, preprocessing_info
+
+
     def train(self, X, y, **train_kwargs):
         # X,y are pandas or numpy-like
         if self.model is None:
@@ -703,6 +762,90 @@ def delete_model(model_id):
     db.session.delete(m)
     db.session.commit()
     return jsonify({'msg': 'Model deleted'})
+def read_dataset_file(file_path: str):
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        if ext == '.csv':
+            return pd.read_csv(file_path)
+        elif ext == '.txt':
+            return pd.read_csv(file_path, sep='\t')
+        elif ext == '.xlsx':
+            import openpyxl
+            return pd.read_excel(file_path, engine='openpyxl')
+        else:
+            raise ValueError(f'Unsupported file format: {ext}')
+    except Exception as e:
+        raise ValueError(f'Failed to read dataset: {str(e)}')
+@app.route('/api/datasets/<int:dataset_id>/preprocess', methods=['POST', 'OPTIONS'])
+@login_required
+def preprocess_dataset(dataset_id):
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+
+    ds = Dataset.query.get_or_404(dataset_id)
+    if ds.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    if not ds.train_test_split or not ds.target_feature:
+        return jsonify({'error': 'Dataset must have target_feature and train_test_split configured'}), 400
+
+    try:
+        # Read file temporarily (df is not stored)
+        df = read_dataset_file(ds.file_path)
+        
+        # Get original shape for reporting
+        original_rows = df.shape[0]
+        
+        # Remove missing values
+        df_cleaned = df.dropna()
+        rows_after_missing = df_cleaned.shape[0]
+        missing_removed = original_rows - rows_after_missing
+        
+        # Remove duplicates
+        df_cleaned = df_cleaned.drop_duplicates()
+        rows_after_duplicates = df_cleaned.shape[0]
+        duplicates_removed = rows_after_missing - rows_after_duplicates
+        
+        # Validate target feature exists
+        if ds.target_feature not in df_cleaned.columns:
+            return jsonify({'error': f'Target feature "{ds.target_feature}" not found in dataset'}), 400
+        
+        # Separate features and target
+        y = df_cleaned[ds.target_feature]
+        X = df_cleaned.drop(columns=[ds.target_feature])
+        
+        # Convert percentage to decimal
+        test_size = ds.train_test_split / 100.0
+        test_size = max(0.01, min(0.99, test_size))
+        
+        # Perform train/test split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=42
+        )
+        
+        preprocessing_info = {
+            'original_rows': int(original_rows),
+            'missing_values_removed': int(missing_removed),
+            'duplicates_removed': int(duplicates_removed),
+            'final_rows': int(rows_after_duplicates),
+            'test_split_percentage': float(ds.train_test_split),
+            'test_size_decimal': float(test_size),
+            'train_samples': len(X_train),
+            'test_samples': len(X_test),
+            'features_count': len(X.columns),
+            'target_feature': ds.target_feature
+        }
+        
+        return jsonify({
+            'msg': 'Dataset preprocessed successfully',
+            'preprocessing': preprocessing_info
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Preprocessing failed: {str(e)}'}), 500
+
 
 @app.route('/api/train/<int:model_id>', methods=['POST'])
 @login_required
