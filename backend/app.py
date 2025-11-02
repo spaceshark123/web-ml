@@ -218,6 +218,9 @@ class ModelWrapper:
                     print(f"[MLP Training] Training paused at epoch {epoch + 1}")
                     import time
                     while pause_check():
+                        if early_stop_check and early_stop_check():
+                            print(f"[MLP Training] Early stop requested during pause - saving progress at epoch {self.final_epoch}")
+                            break
                         time.sleep(0.5)
                     print(f"[MLP Training] Training resumed at epoch {epoch + 1}")
                 
