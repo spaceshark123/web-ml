@@ -220,7 +220,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				setEarlyStopped(true)
 				// Set startPaused based on whether it was paused when early stopped
 				// Default to true for backwards compatibility if was_paused is undefined
-				const shouldStartPaused = data.was_paused !== undefined ? data.was_paused : true
+				const shouldStartPaused = data.was_paused !== undefined ? data.was_paused : false
 				setStartPaused(shouldStartPaused)
 				console.log(`Model was early stopped, will resume training ${shouldStartPaused ? 'paused' : 'running'}`)
 			} else {
