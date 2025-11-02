@@ -9,10 +9,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import os, pandas as pd, pickle, io, datetime
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier, RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.neural_network import MLPClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.ensemble import BaggingClassifier, BaggingRegressor, AdaBoostClassifier, GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
+from sklearn.svm import SVC, SVR
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_squared_error
 
@@ -150,16 +150,17 @@ class ModelWrapper:
     model_type: one of ('linear_regression','logistic_regression','decision_tree',
                        'bagging','boosting','random_forest','svm','mlp')
     """
-    def __init__(self, model_type, model=None, params=None):
+    def __init__(self, model_type, regression=True, model=None, params=None):
         self.model_type = model_type
         self.model = model
         self.params = params or {}
         self.metrics = {}
+        self.regression = regression
 
     def train(self, X, y, **train_kwargs):
         # X,y are pandas or numpy-like
         if self.model is None:
-            self.model = self._instantiate_from_type(self.model_type, self.params)
+            self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
 
         # For scikit-learn style models
         if hasattr(self.model, 'fit'):
@@ -182,8 +183,7 @@ class ModelWrapper:
 
     def evaluate(self, X, y):
         preds = self.predict(X)
-        # Simple heuristic: if target dtype is numeric and model_type suggests regression, use MSE
-        if self.model_type in ['linear_regression']:
+        if self.regression:
             self.metrics['mse'] = float(mean_squared_error(y, preds))
         else:
             # classification metrics
@@ -214,29 +214,46 @@ class ModelWrapper:
         params = json.loads(record.params) if record.params else {}
         metrics = json.loads(record.metrics) if record.metrics else {}
         model = pickle.loads(record.model_blob)
-        wrapper = ModelWrapper(model_type=record.model_type, model=model, params=params)
+        dataset = Dataset.query.get(record.dataset_id)
+        regression = dataset.regression if dataset else False
+        wrapper = ModelWrapper(model_type=record.model_type, model=model, params=params, regression=regression)
         wrapper.metrics = metrics
         return wrapper
 
     @staticmethod
-    def _instantiate_from_type(model_type, params):
+    def _instantiate_from_type(regression, model_type, params):
         # Map types to sklearn classes
         if model_type == 'linear_regression':
+            if not regression:
+                raise ValueError("Linear Regression model requires regression=True")
             return LinearRegression(**(params or {}))
         if model_type == 'logistic_regression':
+            if regression:
+                raise ValueError("Logistic Regression model requires regression=False")
             return LogisticRegression(**(params or {}))
         if model_type == 'decision_tree':
+            if regression:
+                return DecisionTreeRegressor(**(params or {}))
             return DecisionTreeClassifier(**(params or {}))
         if model_type == 'random_forest':
+            if regression:
+                return RandomForestRegressor(**(params or {}))
             return RandomForestClassifier(**(params or {}))
         if model_type == 'bagging':
+            if regression:
+                return BaggingRegressor(**(params or {}))
             return BaggingClassifier(**(params or {}))
         if model_type == 'boosting':
-            # AdaBoost for classification
+            if regression:
+                return GradientBoostingRegressor(**(params or {}))
             return AdaBoostClassifier(**(params or {}))
         if model_type == 'svm':
+            if regression:
+                return SVR(**(params or {}))
             return SVC(**(params or {}))
         if model_type == 'mlp':
+            if regression:
+                return MLPRegressor(**(params or {}))
             return MLPClassifier(**(params or {}))
         raise ValueError(f"Unknown model_type: {model_type}")
 
@@ -745,9 +762,10 @@ def create_model():
         ds = Dataset.query.get_or_404(dataset_id)
         if ds.user_id != current_user.id:
             return jsonify({'error': 'Forbidden'}), 403
+    reg = ds.regression if ds else False
 
     try:
-        wrapper = ModelWrapper(model_type=model_type, model=None, params=params)
+        wrapper = ModelWrapper(model_type=model_type, regression=reg, model=None, params=params)
         entry = wrapper.to_db_record(name=name, dataset_id=ds.id if ds else None, user_id=current_user.id)
         entry.description = description
         db.session.add(entry)
@@ -770,7 +788,7 @@ def get_model(model_id):
         if not isinstance(params, dict):
             return jsonify({'error': 'params must be a dict'}), 400
         wrapper = ModelWrapper.from_db_record(m)
-        wrapper = ModelWrapper(model_type=m.model_type, model=wrapper.model, params=params)
+        wrapper = ModelWrapper(model_type=m.model_type, regression=wrapper.regression, model=wrapper.model, params=params)
         entry = wrapper.to_db_record(name=m.name, dataset_id=m.dataset_id, user_id=m.user_id)
         entry.id = m.id  # keep same ID
         entry.description = m.description

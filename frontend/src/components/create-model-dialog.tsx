@@ -29,7 +29,7 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 	const [customName, setCustomName] = useState("")
 	const [description, setDescription] = useState("")
 	const [uploading, setUploading] = useState(false)
-	const [datasets, setDatasets] = useState<Array<{ id: number, name: string }>>([])
+	const [datasets, setDatasets] = useState<Array<{ id: number, name: string, regression: boolean }>>([])
 	const [error, setError] = useState("")
 	const [params, setParams] = useState<Record<string, any>>({}) // additional params for model
 
@@ -254,26 +254,6 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 							/>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="model-type">Model Type</Label>
-							<Select
-								onValueChange={(value) => setType(value)}
-							>
-								<SelectTrigger className="w-full">
-									<SelectValue placeholder="Select model type" />
-								</SelectTrigger>
-								<SelectContent className="bg-white">
-									<SelectItem value="linear_regression" className="hover:bg-gray-200">Linear Regression</SelectItem>
-									<SelectItem value="logistic_regression" className="hover:bg-gray-200">Logistic Regression</SelectItem>
-									<SelectItem value="decision_tree" className="hover:bg-gray-200">Decision Tree</SelectItem>
-									<SelectItem value="bagging" className="hover:bg-gray-200">Bagging</SelectItem>
-									<SelectItem value="boosting" className="hover:bg-gray-200">Boosting</SelectItem>
-									<SelectItem value="random_forest" className="hover:bg-gray-200">Random Forest</SelectItem>
-									<SelectItem value="svm" className="hover:bg-gray-200">SVM</SelectItem>
-									<SelectItem value="mlp" className="hover:bg-gray-200">MLP</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="space-y-2">
 							<Label htmlFor="file">Target Dataset</Label>
 							<Select
 								onValueChange={(value) => setDatasetId(parseInt(value))}
@@ -288,6 +268,33 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 											<SelectItem key={dataset.id} value={dataset.id.toString()} className="hover:bg-gray-200">{dataset.name}</SelectItem>
 										)
 									})}
+								</SelectContent>
+							</Select>
+						</div>
+						<div className={`space-y-2 ${datasetId === -1 ? "opacity-50 pointer-events-none" : ""}`}>
+							<Label htmlFor="model-type">Model Type</Label>
+							<Select
+								onValueChange={(value) => setType(value)}
+								disabled={datasetId === -1}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue placeholder="Select model type" />
+								</SelectTrigger>
+								<SelectContent className="bg-white">
+									<SelectItem value="linear_regression" className="hover:bg-gray-200" disabled={
+										// disable linear regression if selected dataset is not for regression
+										!datasets.find(d => d.id === datasetId)?.regression
+									}>Linear Regression</SelectItem>
+									<SelectItem value="logistic_regression" className="hover:bg-gray-200" disabled={
+										// disable logistic regression if selected dataset is not for classification
+										datasets.find(d => d.id === datasetId)?.regression
+									}>Logistic Regression</SelectItem>
+									<SelectItem value="decision_tree" className="hover:bg-gray-200">Decision Tree</SelectItem>
+									<SelectItem value="bagging" className="hover:bg-gray-200">Bagging</SelectItem>
+									<SelectItem value="boosting" className="hover:bg-gray-200">Boosting</SelectItem>
+									<SelectItem value="random_forest" className="hover:bg-gray-200">Random Forest</SelectItem>
+									<SelectItem value="svm" className="hover:bg-gray-200">SVM</SelectItem>
+									<SelectItem value="mlp" className="hover:bg-gray-200">MLP</SelectItem>
 								</SelectContent>
 							</Select>
 						</div>
@@ -322,8 +329,13 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 							<Label htmlFor="criteria">Criteria</Label>
 							<Select
 								value={params.criterion || (() => {
-									setParams({ ...params, criterion: "gini" })
-									return "gini"
+									if (datasets.find(d => d.id === datasetId)?.regression) {
+										setParams({ ...params, criterion: "squared_error" })
+										return "squared_error"
+									} else {
+										setParams({ ...params, criterion: "gini" })
+										return "gini"
+									}
 								})()}
 								onValueChange={(value) => {
 									setParams({ ...params, criterion: value })
@@ -333,8 +345,10 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 									<SelectValue placeholder="Select criteria" />
 								</SelectTrigger>
 								<SelectContent className="bg-white">
-									<SelectItem value="gini" className="hover:bg-gray-200">Gini</SelectItem>
-									<SelectItem value="entropy" className="hover:bg-gray-200">Entropy</SelectItem>
+									<SelectItem value="gini" className="hover:bg-gray-200" disabled={datasets.find(d => d.id === datasetId)?.regression}>Gini</SelectItem>
+									<SelectItem value="entropy" className="hover:bg-gray-200" disabled={datasets.find(d => d.id === datasetId)?.regression}>Entropy</SelectItem>
+									<SelectItem value="squared_error" className="hover:bg-gray-200" disabled={!datasets.find(d => d.id === datasetId)?.regression}>MSE</SelectItem>
+									<SelectItem value="absolute_error" className="hover:bg-gray-200" disabled={!datasets.find(d => d.id === datasetId)?.regression}>MAE</SelectItem>
 								</SelectContent>
 							</Select>
 						</div>

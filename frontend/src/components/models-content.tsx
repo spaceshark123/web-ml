@@ -239,6 +239,7 @@ export function ModelsContent() {
 										error={model.error}
 										onDelete={handleDelete}
 										onDownload={() => downloadModel(model.id, model.name)}
+										refreshModelsList={fetchModels}
 									/>
 								);
 							})

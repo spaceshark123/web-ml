@@ -32,6 +32,7 @@ interface ModelCardProps {
 	error?: string
 	onDelete?: () => void
 	onDownload?: () => void
+	refreshModelsList?: () => void
 }
 
 export function ModelCard({ id, name, description, model_type, created_at, datasetId, params, metrics, error, onDelete, onDownload }: ModelCardProps) {
@@ -161,6 +162,8 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 							modelIdInput={id}
 							onTrainSuccess={() => {
 								// Handle successful train
+								// refresh model list
+								refreshModelsList?.()
 							}}
 						/>
 					</div>
