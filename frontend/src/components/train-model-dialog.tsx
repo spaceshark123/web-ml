@@ -36,6 +36,37 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 	const [learningRate, setLearningRate] = useState("0.001")
 	const [alpha, setAlpha] = useState("0.0001")
 
+	const [regression, setRegression] = useState(false)
+
+	const getRegression = async (datasetId: number) => {
+		try {
+			const response = await fetch(`http://localhost:5000/api/datasets/${datasetId}`, {
+				method: "GET",
+				credentials: "include",
+				headers: {
+					"Accept": "application/json",
+					"Content-Type": "application/json",
+				},
+			})
+			if (!response.ok) {
+				return
+			}
+			const data = await response.json()
+			if (data.error) {
+				return
+			}
+			setRegression(data.regression)
+		} catch {
+			console.log("Failed to fetch dataset for regression info")
+		}
+	}
+
+	useEffect(() => {
+		if (model.dataset_id !== -1) {
+			getRegression(model.dataset_id)
+		}
+	}, [model.dataset_id])
+
 	// hyperparameters state
 	const [hyperparameters, setHyperparameters] = useState<Record<string, any>>({})
 
@@ -226,7 +257,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				
 				{showVisualizer && model.model_type === 'mlp' ? (
 					<div className="py-4">
-						<TrainingVisualizer modelId={model.id} isVisible={showVisualizer} />
+						<TrainingVisualizer modelId={model.id} isVisible={showVisualizer} regression={regression} />
 					</div>
 				) : (
 					<div className="space-y-4 py-4">
@@ -296,7 +327,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 								
 								<div className="grid grid-cols-2 gap-4">
 									<div className="space-y-2">
-										<Label htmlFor="max-iter">Max Iterations</Label>
+										<Label htmlFor="max-iter">Epochs</Label>
 										<Input
 											id="max-iter"
 											type="number"

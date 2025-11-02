@@ -190,15 +190,18 @@ class ModelWrapper:
                 # Calculate metrics for this epoch
                 train_preds = self.model.predict(X)
                 train_loss = self.model.loss_ if hasattr(self.model, 'loss_') else 0.0
-                train_accuracy = accuracy_score(y, train_preds)
-                
-                print(f"[MLP Training] Epoch {epoch + 1}/{max_iter} - Loss: {train_loss:.6f}, Accuracy: {train_accuracy:.4f}")
-                
+                if self.regression:
+                    train_metric = mean_squared_error(y, train_preds)
+                else:
+                    train_metric = accuracy_score(y, train_preds)
+
+                print(f"[MLP Training] Epoch {epoch + 1}/{max_iter} - Loss: {train_loss:.6f}, {'MSE' if self.regression else 'Accuracy'}: {train_metric:.4f}")
+
                 # Send progress update
                 progress_callback({
                     'epoch': epoch + 1,
                     'loss': float(train_loss),
-                    'accuracy': float(train_accuracy)
+                    'metric': float(train_metric)
                 })
                 
                 # Check for convergence (loss not improving)
@@ -659,7 +662,28 @@ def get_datasets():
 
 from flask import send_from_directory
 
-# ...existing code...
+# get single dataset entry
+@app.route('/api/datasets/<int:dataset_id>', methods=['GET'])
+@login_required
+def get_dataset(dataset_id):
+    ds = Dataset.query.get_or_404(dataset_id)
+    if ds.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    dataset_info = {
+        'id': ds.id,
+        'name': ds.name,
+        'file_path': ds.file_path,
+        'user_id': ds.user_id,
+        'created_at': ds.created_at,
+        'updated_at': ds.updated_at,
+        'input_features': ds.input_features,
+        'target_feature': ds.target_feature,
+        'train_test_split': ds.train_test_split,
+        'regression': ds.regression
+    }
+
+    return jsonify(dataset_info)
 
 @app.route('/api/download/<int:dataset_id>', methods=['GET'])
 @login_required
