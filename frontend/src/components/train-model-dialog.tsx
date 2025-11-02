@@ -27,6 +27,8 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 	const [error, setError] = useState("")
 	const [isTraining, setIsTraining] = useState(false)
 	const [showVisualizer, setShowVisualizer] = useState(false)
+	const [earlyStopped, setEarlyStopped] = useState(false)
+	const [startPaused, setStartPaused] = useState(false)
 
 	// MLP hyperparameters with defaults
 	const [hiddenLayers, setHiddenLayers] = useState("100")
@@ -213,6 +215,19 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			}
 			setModel(data)
 			
+			// Check if model was early stopped and whether it should resume paused
+			if (data.early_stopped) {
+				setEarlyStopped(true)
+				// Set startPaused based on whether it was paused when early stopped
+				// Default to true for backwards compatibility if was_paused is undefined
+				const shouldStartPaused = data.was_paused !== undefined ? data.was_paused : true
+				setStartPaused(shouldStartPaused)
+				console.log(`Model was early stopped, will resume training ${shouldStartPaused ? 'paused' : 'running'}`)
+			} else {
+				setEarlyStopped(false)
+				setStartPaused(false)
+			}
+			
 			// Load existing params if available for MLP
 			if (data.model_type === 'mlp' && data.params) {
 				if (data.params.hidden_layer_sizes) {
@@ -237,6 +252,15 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 		}
 	}, [open, modelIdInput])
 
+	// Auto-start training if model was early stopped
+	useEffect(() => {
+		if (open && earlyStopped && model.model_type === 'mlp' && !showVisualizer) {
+			console.log("Auto-starting training for early-stopped model")
+			// startPaused is already set in getModel based on was_paused flag
+			handleTrain()
+		}
+	}, [open, earlyStopped, model.model_type])
+
 	// Handle dialog close - reset state
 	const handleOpenChange = (newOpen: boolean) => {
 		setOpen(newOpen)
@@ -246,6 +270,8 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			setShowVisualizer(false)
 			setIsTraining(false)
 			setError("")
+			setEarlyStopped(false)
+			setStartPaused(false)
 		}
 	}
 
@@ -278,12 +304,11 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 							modelId={model.id} 
 							isVisible={showVisualizer} 
 							regression={regression}
-							onCancel={() => {
-								setIsTraining(false)
-								setShowVisualizer(false)
-							}}
+							startPaused={startPaused}
 							onComplete={() => {
 								setIsTraining(false)
+								// Clear early stopped flag on successful completion
+								setEarlyStopped(false)
 							}}
 						/>
 					</div>

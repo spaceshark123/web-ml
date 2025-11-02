@@ -45,6 +45,8 @@ socketio = SocketIO(app, cors_allowed_origins="http://localhost:5173", async_mod
 
 # Track training pause state per model
 training_paused = {}
+# Track early stop requests per model
+training_early_stopped = {}
 
 # Configure session
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -92,6 +94,8 @@ class ModelEntry(db.Model):
     dataset_id = db.Column(db.Integer, db.ForeignKey('dataset.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
+    early_stopped = db.Column(db.Boolean, default=False, nullable=True)
+    current_epoch = db.Column(db.Integer, nullable=True)  # Track last completed epoch for resuming
 
 def preprocess(df, input_features, target_feature, test_split):
     """
@@ -171,18 +175,25 @@ class ModelWrapper:
         self.metrics = {}
         self.regression = regression
 
-    def train(self, X, y, progress_callback=None, pause_check=None, **train_kwargs):
+    def train(self, X, y, progress_callback=None, pause_check=None, early_stop_check=None, start_epoch=0, **train_kwargs):
         # X,y are pandas or numpy-like
         
-        # For MLP: Always create a fresh model instance to avoid state pollution from previous training
+        # For MLP: Only create a fresh model instance if starting from scratch (start_epoch == 0)
+        # When resuming (start_epoch > 0), keep the existing model loaded from blob
         if self.model_type == 'mlp':
-            self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
+            if start_epoch == 0:
+                # Starting fresh - create new model
+                self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
+            # else: keep existing model from blob for resuming
         elif self.model is None:
             self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
 
+        # Track the final epoch reached for resuming later
+        self.final_epoch = start_epoch
+
         # For MLP with streaming support
         if self.model_type == 'mlp' and progress_callback:
-            print(f"[MLP Training] Starting epoch-wise training with progress callback")
+            print(f"[MLP Training] Starting epoch-wise training with progress callback (start_epoch={start_epoch})")
             
             # Get max iterations from params (NOT from model which may have stale value)
             max_iter = self.params.get('max_iter', 200)
@@ -196,7 +207,12 @@ class ModelWrapper:
             prev_loss = float('inf')
             tol = self.model.tol if hasattr(self.model, 'tol') else 1e-4
             
-            for epoch in range(max_iter):
+            for epoch in range(start_epoch, max_iter):
+                # Check if early stop was requested
+                if early_stop_check and early_stop_check():
+                    print(f"[MLP Training] Early stop requested - saving progress at epoch {self.final_epoch}")
+                    break
+                
                 # Check if training is paused
                 if pause_check and pause_check():
                     print(f"[MLP Training] Training paused at epoch {epoch + 1}")
@@ -229,14 +245,17 @@ class ModelWrapper:
                     'regression': self.regression
                 })
                 
+                # Update final epoch after successful completion
+                self.final_epoch = epoch + 1
+                
                 # Check for convergence (loss not improving)
-                if epoch > 0 and abs(prev_loss - train_loss) < tol:
+                if epoch > start_epoch and abs(prev_loss - train_loss) < tol:
                     print(f"[MLP Training] Converged at epoch {epoch + 1}")
                     break
                 
                 prev_loss = train_loss
             
-            print(f"[MLP Training] Training completed")
+            print(f"[MLP Training] Training completed at epoch {self.final_epoch}")
         else:
             # For scikit-learn style models (standard training)
             if hasattr(self.model, 'fit'):
@@ -1105,7 +1124,9 @@ def get_model(model_id):
             'dataset_id': m.dataset_id,
             'created_at': m.created_at.isoformat() if m.created_at else None,
             'params': json.loads(m.params) if m.params else {},
-            'metrics': json.loads(m.metrics) if m.metrics else {}
+            'metrics': json.loads(m.metrics) if m.metrics else {},
+            'early_stopped': m.early_stopped if hasattr(m, 'early_stopped') else False,
+            'current_epoch': m.current_epoch if hasattr(m, 'current_epoch') else None
         })
 
 @app.route('/api/models/<int:model_id>/download', methods=['GET'])
@@ -1335,9 +1356,6 @@ def handle_training(data):
             emit('training_error', {'message': 'model_id is required'})
             return
         
-        # Initialize pause state for this model
-        training_paused[model_id] = False
-        
         print(f"[WebSocket] Starting training for model_id: {model_id}")
         
         # Verify user is authenticated (SocketIO session)
@@ -1350,6 +1368,18 @@ def handle_training(data):
             return
         
         print(f"[WebSocket] Found model: {m_entry.name} (type: {m_entry.model_type})")
+        
+        # Initialize pause state for this model
+        # If resuming early-stopped model, always start in paused state
+        if m_entry.early_stopped:
+            training_paused[model_id] = True  # Start paused when resuming early-stopped model
+            epoch_info = f" from epoch {m_entry.current_epoch}" if m_entry.current_epoch is not None else ""
+            print(f"[WebSocket] Initializing paused state for early-stopped model resume{epoch_info}")
+            # Notify frontend immediately
+            emit('training_paused', {'model_id': model_id})
+        else:
+            training_paused[model_id] = False
+        training_early_stopped[model_id] = False
         
         ds = Dataset.query.get(m_entry.dataset_id)
         if not ds:
@@ -1408,10 +1438,21 @@ def handle_training(data):
         def pause_check():
             return training_paused.get(model_id, False)
         
+        # Define early stop check function
+        def early_stop_check():
+            return training_early_stopped.get(model_id, False)
+        
         print("[WebSocket] Starting model training...")
         # Train with streaming
         wrapper = ModelWrapper.from_db_record(m_entry)
-        wrapper.train(X_train, y_train, progress_callback=progress_callback, pause_check=pause_check)
+        
+        # If model was early stopped, resume from the saved epoch
+        start_epoch = 0
+        if m_entry.early_stopped and m_entry.current_epoch is not None:
+            start_epoch = m_entry.current_epoch
+            print(f"[WebSocket] Resuming training from epoch {start_epoch}")
+        
+        wrapper.train(X_train, y_train, progress_callback=progress_callback, pause_check=pause_check, early_stop_check=early_stop_check, start_epoch=start_epoch)
         
         print("[WebSocket] Training complete, evaluating...")
         # Evaluate and save
@@ -1419,14 +1460,24 @@ def handle_training(data):
         entry = wrapper.to_db_record(name=m_entry.name, dataset_id=ds.id, user_id=m_entry.user_id)
         entry.id = m_entry.id
         entry.metrics = json.dumps(final_metrics)
+        # Mark if this was early stopped (or clear flag if training completed normally)
+        was_early_stopped = training_early_stopped.get(model_id, False)
+        entry.early_stopped = was_early_stopped
+        # Save current epoch if early stopped, otherwise clear it
+        if was_early_stopped:
+            entry.current_epoch = wrapper.final_epoch if hasattr(wrapper, 'final_epoch') else None
+            print(f"[WebSocket] Early stopped at epoch {entry.current_epoch}")
+        else:
+            entry.current_epoch = None  # Clear epoch on successful completion
         db.session.merge(entry)
         db.session.commit()
         
-        print(f"[WebSocket] Emitting training_complete with metrics: {final_metrics}")
+        print(f"[WebSocket] Emitting training_complete with metrics: {final_metrics}, early_stopped: {was_early_stopped}")
         socketio.emit('training_complete', {
             'type': 'complete',
             'message': 'Training completed successfully',
-            'metrics': final_metrics
+            'metrics': final_metrics,
+            'early_stopped': was_early_stopped
         })
         
     except Exception as e:
@@ -1441,6 +1492,8 @@ def handle_training(data):
         # Clean up pause state
         if model_id in training_paused:
             del training_paused[model_id]
+        if model_id in training_early_stopped:
+            del training_early_stopped[model_id]
 
 @socketio.on('pause_training')
 def handle_pause(data):
@@ -1459,6 +1512,15 @@ def handle_resume(data):
         training_paused[model_id] = False
         emit('training_resumed', {'model_id': model_id})
         print(f"[WebSocket] Training resumed for model {model_id}")
+
+@socketio.on('early_stop_training')
+def handle_early_stop(data):
+    """Early stop training for a specific model - saves current progress"""
+    model_id = data.get('model_id')
+    if model_id:
+        training_early_stopped[model_id] = True
+        emit('training_early_stopped', {'model_id': model_id})
+        print(f"[WebSocket] Early stop requested for model {model_id}")
 
 @app.route('/api/models/<int:model_id>/predict', methods=['POST'])
 @login_required
@@ -1572,6 +1634,36 @@ def migrate_add_model_description():
             conn.execute(db.text('ALTER TABLE model_entry ADD COLUMN description TEXT'))
             conn.commit()
         return jsonify({'msg': 'Migration completed successfully'})
+    except Exception as e:
+        # Column might already exist
+        return jsonify({'msg': f'Migration note: {str(e)}'})
+
+@app.route('/api/migrate/add-early-stopped', methods=['POST'])
+def migrate_add_early_stopped():
+    key = request.args.get('key')
+    if key != 'supersecretresetkey':
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        # Add early_stopped column if it doesn't exist
+        with db.engine.connect() as conn:
+            conn.execute(db.text('ALTER TABLE model_entry ADD COLUMN early_stopped BOOLEAN DEFAULT 0'))
+            conn.commit()
+        return jsonify({'msg': 'Migration completed successfully - added early_stopped column'})
+    except Exception as e:
+        # Column might already exist
+        return jsonify({'msg': f'Migration note: {str(e)}'})
+
+@app.route('/api/migrate/add-current-epoch', methods=['POST'])
+def migrate_add_current_epoch():
+    key = request.args.get('key')
+    if key != 'supersecretresetkey':
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        # Add current_epoch column if it doesn't exist
+        with db.engine.connect() as conn:
+            conn.execute(db.text('ALTER TABLE model_entry ADD COLUMN current_epoch INTEGER'))
+            conn.commit()
+        return jsonify({'msg': 'Migration completed successfully - added current_epoch column'})
     except Exception as e:
         # Column might already exist
         return jsonify({'msg': f'Migration note: {str(e)}'})
