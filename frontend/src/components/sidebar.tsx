@@ -14,13 +14,8 @@ export function Sidebar() {
     <aside className="w-60 bg-linear-to-b from-[#6B7FD7] to-[#8B5FBF] text-white flex flex-col">
       {/* Logo */}
       <Link to="/dashboard" className="p-6 flex items-center gap-3">
-        <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
-          <div
-            className="w-6 h-6 bg-white rounded-full"
-            style={{ clipPath: "polygon(0 0, 50% 0, 50% 100%, 0 100%)" }}
-          />
-        </div>
-        <span className="text-xl font-semibold">ML Platform</span>
+        <img src="/logo.png" alt="Web ML Logo" className="w-8 h-8" />
+        <span className="text-xl font-semibold">Web ML</span>
       </Link>
 
       {/* Navigation */}
