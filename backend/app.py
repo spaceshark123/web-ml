@@ -59,6 +59,7 @@ class Dataset(db.Model):
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
     input_features = db.Column(db.String(500), nullable=True)  # comma-separated feature names
     target_feature = db.Column(db.String(100), nullable=True)
+    regression = db.Column(db.Boolean, default=False, nullable=True) # True if regression, False if classification
     train_test_split = db.Column(db.Float, nullable=True)
     
 class ModelEntry(db.Model):
@@ -316,12 +317,14 @@ def upload():
         file = request.files.get('file')
         custom_name = request.form.get('name')
         description = request.form.get('description')
+        regression = request.form.get('regression', 'false').lower() == 'true'
         input_features = request.form.get('input_features')
         target_feature = request.form.get('target_feature')
         
         print(f"Received file: {file.filename if file else 'None'}")
         print(f"Custom name: {custom_name}")
         print(f"Description: {description}")
+        print(f"Regression/Classification: {'Regression' if regression else 'Classification'}")
         print(f"Input features: {input_features}")
         print(f"Target feature: {target_feature}")
         
@@ -357,7 +360,7 @@ def upload():
             
         try:
             # Save name with extension to ensure consistency when retrieving
-            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description, input_features=input_features, target_feature=target_feature)
+            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description, regression=regression, input_features=input_features, target_feature=target_feature)
             db.session.add(ds)
             db.session.commit()
         except Exception as e:
@@ -419,6 +422,7 @@ def upload():
                     'file_size': file_size,
                     'rows': rows,
                     'features': features,
+                    'regression': ds.regression,
                     'input_features': input_features,
                     'target_feature': target_feature,
                     'upload_date': ds.created_at.isoformat(),
@@ -437,6 +441,7 @@ def upload():
                 'file_size': file_size,
                 'rows': rows,
                 'features': features,
+                'regression': ds.regression,
                 'input_features': input_features,
                 'target_feature': target_feature,
                 'upload_date': ds.created_at.isoformat(),
@@ -497,6 +502,7 @@ def get_datasets():
                     'file_size': 0,
                     'rows': 0,
                     'features': 0,
+                    'regression': ds.regression,
                     'input_features': ds.input_features if ds.input_features else "",
                     'target_feature': ds.target_feature,
                     'models': ModelEntry.query.filter_by(dataset_id=ds.id).count()
@@ -632,7 +638,8 @@ def save_dataset_config(dataset_id):
         return jsonify({'error': 'Forbidden'}), 403
 
     data = request.json
-    
+
+    regression = data.get('regression', False)
     input_features = data.get('input_features') # expect a string (comma-separated features)
     target_feature = data.get('target_feature')
     train_test_split = data.get('train_test_split')
@@ -645,6 +652,7 @@ def save_dataset_config(dataset_id):
         return jsonify({'error': 'Invalid configuration data'}), 400
 
     try:
+        ds.regression = bool(regression)
         ds.input_features = input_features
         ds.target_feature = target_feature
         ds.train_test_split = float(train_test_split)

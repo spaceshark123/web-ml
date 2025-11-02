@@ -34,6 +34,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
   const [error, setError] = useState("")
   const [step, setStep] = useState<'select' | 'specify'>('select')
   const [columns, setColumns] = useState<string[] | null>(null)
+  const [regression, setRegression] = useState<boolean>(false)
   const [inputFeatures, setInputFeatures] = useState<string[] | null>(null)
   const [targetVariable, setTargetVariable] = useState<string | null>(null)
   const [splitPercent, setSplitPercent] = useState<number>(20)
@@ -263,6 +264,10 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setError('Test split must be between 0 and 100')
       return
     }
+    if(regression === null){
+      setError('Please specify whether this is a regression task')
+      return
+    }
 
     try {
       if (!datasetId) {
@@ -274,7 +279,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input_features: inputFeatures.join(","), target_feature: targetVariable, train_test_split: splitPercent }),
+        body: JSON.stringify({ regression: regression, input_features: inputFeatures.join(","), target_feature: targetVariable, train_test_split: splitPercent }),
       })
 
       let body: any = null
@@ -315,6 +320,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setCustomName('')
       setDescription('')
       setColumns(null)
+      setRegression(false)
       setInputFeatures(null)
       setTargetVariable(null)
       setSplitPercent(20)
@@ -354,6 +360,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setCustomName('')
       setDescription('')
       setColumns(null)
+      setRegression(false)
       setInputFeatures(null)
       setTargetVariable(null)
       setSplitPercent(20)
@@ -434,7 +441,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
             <DialogHeader>
               <DialogTitle>Dataset Specifications</DialogTitle>
               <DialogDescription>
-                Choose the input features, target variable, and the train/test split for downstream tasks.
+                Choose the task, input features, target variable, and the train/test split for downstream tasks.
               </DialogDescription>
             </DialogHeader>
 
@@ -500,7 +507,22 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                     <p className="text-sm text-gray-500 mt-1">Note: Column auto-detection is not available for this file type.</p>
                   </div>
                 )}
-              </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Task</Label>
+                  <div className="flex items-center gap-3">
+                    <Select value={regression ? "regression" : "classification"} onValueChange={(v) => setRegression(v === "regression")}>
+                      <SelectTrigger className="w-full cursor-pointer">
+                        <SelectValue placeholder="Select task type" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white">
+                        <SelectItem value="regression" className="hover:bg-gray-200 cursor-pointer">Regression</SelectItem>
+                        <SelectItem value="classification" className="hover:bg-gray-200 cursor-pointer">Classification</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
               <div className="space-y-2">
                 <Label>Test Split (%)</Label>

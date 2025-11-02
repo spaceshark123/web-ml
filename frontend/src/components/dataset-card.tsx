@@ -18,6 +18,7 @@ interface DatasetCardProps {
 	fileSize: string
 	rows: number
 	features: number
+	regression: boolean
 	input_features: string[]
 	target_feature: string
 	models: number
@@ -26,7 +27,7 @@ interface DatasetCardProps {
 	onDownload?: () => void
 }
 
-export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, input_features, target_feature, features, models, error, onDelete, onDownload }: DatasetCardProps) {
+export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, regression, input_features, target_feature, features, models, error, onDelete, onDownload }: DatasetCardProps) {
 	return (
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
@@ -54,6 +55,10 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 					<div className="flex justify-between text-sm">
 						<span className="text-gray-600">Features:</span>
 						<span className="text-gray-900">{features}</span>
+					</div>
+					<div className="flex justify-between text-sm">
+						<span className="text-gray-600">Task:</span>
+						<span className="text-gray-900">{regression ? "Regression" : "Classification"}</span>
 					</div>
 					<div className="flex justify-between text-sm">
 						<span className="text-gray-600">Input Features:</span>
