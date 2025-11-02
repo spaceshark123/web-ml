@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react"
 import { ArrowLeft, TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { Button } from "./ui/button"
-import { Card } from "./ui/card"
+import { Card, CardHeader, CardTitle, CardDescription } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Link } from "react-router-dom"
 import { API_BASE_URL } from "@/constants"
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 
 interface Model {
   id: number
@@ -15,9 +16,13 @@ interface Model {
   metrics: Record<string, any>
 }
 
+interface DetailedModel extends Model {
+  cv?: Record<string, number>
+}
+
 interface ComparisonData {
-  model1: Model
-  model2: Model
+  model1: DetailedModel
+  model2: DetailedModel
 }
 
 export function CompareModels() {
@@ -78,7 +83,7 @@ export function CompareModels() {
     return sortOrder === "asc" ? result : -result
   })
 
-  const getMetricComparison = (metric: string, val1: any, val2: any) => {
+  const getMetricComparison = (_: string, val1: any, val2: any) => {
     if (val1 === null || val2 === null || val1 === undefined || val2 === undefined) {
       return null
     }
@@ -138,7 +143,7 @@ export function CompareModels() {
         <p className="text-gray-500">Side-by-side model comparison and performance metrics</p>
       </div>
 
-      <div className="p-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
+  <div className="p-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Model Selection */}
         <div className="lg:col-span-1">
           <Card className="p-6">
@@ -200,20 +205,18 @@ export function CompareModels() {
             <div className="space-y-6">
               {/* Model Info Cards */}
               <div className="grid grid-cols-2 gap-6">
-                <Card className="p-6 bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">{comparisonData.model1.name}</h3>
-                  <p className="text-sm text-gray-600 mb-3">{comparisonData.model1.model_type}</p>
-                  <p className="text-xs text-gray-500">
-                    Created: {"N/A"/*{new Date(comparisonData.model1.created_at).toLocaleDateString()}*/}
-                  </p>
+                <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                  <CardHeader>
+                    <CardTitle className="text-xl">{comparisonData.model1.name}</CardTitle>
+                    <CardDescription>{comparisonData.model1.model_type}</CardDescription>
+                  </CardHeader>
                 </Card>
 
-                <Card className="p-6 bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">{comparisonData.model2.name}</h3>
-                  <p className="text-sm text-gray-600 mb-3">{comparisonData.model2.model_type}</p>
-                  <p className="text-xs text-gray-500">
-                    Created: {"N/A"/*{new Date(comparisonData.model2.created_at).toLocaleDateString()}*/}
-                  </p>
+                <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+                  <CardHeader>
+                    <CardTitle className="text-xl">{comparisonData.model2.name}</CardTitle>
+                    <CardDescription>{comparisonData.model2.model_type}</CardDescription>
+                  </CardHeader>
                 </Card>
               </div>
 
@@ -242,6 +245,13 @@ export function CompareModels() {
                       "ROC-AUC",
                       comparisonData.model1.metrics.roc_auc,
                       comparisonData.model2.metrics.roc_auc,
+                    )}
+                    {(comparisonData.model1.metrics.pr_auc !== undefined || comparisonData.model2.metrics.pr_auc !== undefined) && (
+                      renderMetric(
+                        "PR-AUC",
+                        comparisonData.model1.metrics.pr_auc,
+                        comparisonData.model2.metrics.pr_auc,
+                      )
                     )}
                   </div>
                 )}
@@ -311,6 +321,89 @@ export function CompareModels() {
                   </div>
                 )}
               </Card>
+
+              {/* Curves */}
+              {(comparisonData.model1.metrics.roc_curve || comparisonData.model2.metrics.roc_curve) && (
+                <Card className="p-6">
+                  <h3 className="text-lg font-semibold mb-4">ROC Curve</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" dataKey="fpr" name="FPR" domain={[0, 1]} />
+                      <YAxis type="number" dataKey="tpr" name="TPR" domain={[0, 1]} />
+                      <Tooltip formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : v)} />
+                      <Legend />
+                      {comparisonData.model1.metrics.roc_curve && (
+                        <Line data={comparisonData.model1.metrics.roc_curve} type="monotone" dataKey="tpr" name={`${comparisonData.model1.name}`} stroke="#2563eb" dot={false} />
+                      )}
+                      {comparisonData.model2.metrics.roc_curve && (
+                        <Line data={comparisonData.model2.metrics.roc_curve} type="monotone" dataKey="tpr" name={`${comparisonData.model2.name}`} stroke="#7c3aed" dot={false} />
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </Card>
+              )}
+
+              {((comparisonData.model1.metrics.preprocessing?.imbalance?.is_imbalanced && comparisonData.model1.metrics.pr_curve) ||
+                (comparisonData.model2.metrics.preprocessing?.imbalance?.is_imbalanced && comparisonData.model2.metrics.pr_curve)) && (
+                <Card className="p-6">
+                  <h3 className="text-lg font-semibold mb-4">Precision-Recall Curve</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" dataKey="recall" name="Recall" domain={[0, 1]} />
+                      <YAxis type="number" dataKey="precision" name="Precision" domain={[0, 1]} />
+                      <Tooltip formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : v)} />
+                      <Legend />
+                      {comparisonData.model1.metrics.pr_curve && (
+                        <Line data={comparisonData.model1.metrics.pr_curve} type="monotone" dataKey="precision" name={`${comparisonData.model1.name}`} stroke="#16a34a" dot={false} />
+                      )}
+                      {comparisonData.model2.metrics.pr_curve && (
+                        <Line data={comparisonData.model2.metrics.pr_curve} type="monotone" dataKey="precision" name={`${comparisonData.model2.name}`} stroke="#ea580c" dot={false} />
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </Card>
+              )}
+
+              {/* Cross-validation summary */}
+              {(comparisonData.model1.cv || comparisonData.model2.cv) && (
+                <Card className="p-6">
+                  <h3 className="text-lg font-semibold mb-4">Cross-Validation (3-fold)</h3>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-2">{comparisonData.model1.name}</h4>
+                      <div className="space-y-1 text-sm text-gray-700">
+                        {comparisonData.model1.cv ? (
+                          Object.entries(comparisonData.model1.cv).map(([k, v]) => {
+                            const val = v as number
+                            return (
+                              <div key={k} className="flex justify-between"><span>{k}</span><span className="font-mono">{typeof val === 'number' ? val.toFixed(4) : String(val)}</span></div>
+                            )
+                          })
+                        ) : (
+                          <div className="text-gray-500">CV not available</div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-2">{comparisonData.model2.name}</h4>
+                      <div className="space-y-1 text-sm text-gray-700">
+                        {comparisonData.model2.cv ? (
+                          Object.entries(comparisonData.model2.cv).map(([k, v]) => {
+                            const val = v as number
+                            return (
+                              <div key={k} className="flex justify-between"><span>{k}</span><span className="font-mono">{typeof val === 'number' ? val.toFixed(4) : String(val)}</span></div>
+                            )
+                          })
+                        ) : (
+                          <div className="text-gray-500">CV not available</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              )}
             </div>
           ) : (
             <Card className="p-12 text-center">
