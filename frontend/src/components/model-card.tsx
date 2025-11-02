@@ -102,12 +102,18 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 					</div>
 				)}
 
-				{/* Metrics: Only show MSE and wrap if needed */}
+				{/* Metrics: Only show MSE and accuracy and wrap if needed */}
 				<div className="mb-6 pb-6 border-b border-gray-200">
 					{metrics.mse !== undefined && (
 						<div className="text-center">
 							<div className="text-2xl font-bold text-blue-600 whitespace-normal break-words break-all">{metrics.mse.toFixed(4)}</div>
 							<div className="text-xs text-gray-500 uppercase tracking-wide">MSE</div>
+						</div>
+					)}
+					{metrics.accuracy !== undefined && (
+						<div className="text-center mt-4">
+							<div className="text-2xl font-bold text-blue-600 whitespace-normal break-words break-all">{(metrics.accuracy * 100).toFixed(2)}%</div>
+							<div className="text-xs text-gray-500 uppercase tracking-wide">Accuracy</div>
 						</div>
 					)}
 				</div>
