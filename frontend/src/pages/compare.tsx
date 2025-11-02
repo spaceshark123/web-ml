@@ -1,12 +1,12 @@
 import { Sidebar } from "@/components/sidebar"
-import { CompareModels } from "@/components/compare-models"
+import { CompareContent } from "@/components/compare-content"
 
 export default function ComparePage() {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
       <main className="flex-1">
-        <CompareModels />
+        <CompareContent />
       </main>
     </div>
   )

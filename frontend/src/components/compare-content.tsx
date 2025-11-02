@@ -26,7 +26,7 @@ interface ComparisonData {
   model2: DetailedModel
 }
 
-export function CompareModels() {
+export function CompareContent() {
   const [models, setModels] = useState<Model[]>([])
   const [datasets, setDatasets] = useState<Array<{ id: number; name: string }>>([])
   const [selectedDataset, setSelectedDataset] = useState<string>("all")
