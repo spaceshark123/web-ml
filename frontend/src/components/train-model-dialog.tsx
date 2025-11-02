@@ -40,6 +40,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 
 	const [regression, setRegression] = useState(false)
 	const [progressPercent, setProgressPercent] = useState<number>(0)
+	const [instantComplete, setInstantComplete] = useState<boolean>(false)
 	const nonMlpSocketRef = useRef<ReturnType<typeof io> | null>(null)
 	const hasShownAlertRef = useRef<boolean>(false)
 	const simIntervalRef = useRef<number | null>(null)
@@ -80,6 +81,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 		setError("")
 		setIsTraining(true)
 		setProgressPercent(0)
+		setInstantComplete(false)
 		hasShownAlertRef.current = false
 		
 		// For MLP, use WebSocket streaming
@@ -209,21 +211,25 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				}
 				return
 			}
-			// Complete: stop simulation, set to 100, then show single alert after a brief delay
+			// Complete: stop simulation, set to 100 (without animation), then show single alert after the UI paints 100%
 			if (simIntervalRef.current !== null) {
 				window.clearInterval(simIntervalRef.current)
 				simIntervalRef.current = null
 			}
+			setInstantComplete(true)
 			setProgressPercent(100)
-			setTimeout(() => {
-				if (!hasShownAlertRef.current) {
-					hasShownAlertRef.current = true
-					setIsTraining(false)
-					try { alert('Training completed successfully!') } catch (_) {}
-					setOpen(false)
-					onTrainSuccess?.()
-				}
-			}, 300)
+			// Use double rAF to ensure the 100% width renders before showing alert
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					if (!hasShownAlertRef.current) {
+						hasShownAlertRef.current = true
+						setIsTraining(false)
+						try { alert('Training completed successfully!') } catch (_) {}
+						setOpen(false)
+						onTrainSuccess?.()
+					}
+				})
+			})
 		} catch (error) {
 			setError("Failed to start training. Please try again.")
 			setIsTraining(false)
@@ -478,7 +484,13 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 							<div className="space-y-2">
 								<Label>Training Progress</Label>
 								<div className="w-full bg-gray-200 rounded h-3 overflow-hidden">
-									<div className="bg-blue-600 h-3" style={{ width: `${progressPercent}%`, transition: 'width 0.3s ease' }} />
+									<div 
+										className="bg-blue-600 h-3"
+										style={{ 
+											width: `${progressPercent}%`, 
+											transition: instantComplete ? 'none' : 'width 0.3s ease' 
+										}} 
+									/>
 								</div>
 								<div className="text-xs text-gray-700">{progressPercent}%</div>
 							</div>

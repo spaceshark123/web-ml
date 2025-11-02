@@ -1,15 +1,14 @@
 import { Button } from "./ui/button"
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
-	CardFooter,
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card"
 import { useEffect, useState } from "react"
 import { TrainModelDialog } from "./train-model-dialog"
+import { useNavigate } from "react-router-dom"
 
 interface ModelCardProps {
 	id: number
@@ -36,6 +35,7 @@ interface ModelCardProps {
 }
 
 export function ModelCard({ id, name, description, model_type, created_at, datasetId, params, metrics, error, onDelete, onDownload, refreshModelsList }: ModelCardProps) {
+	const navigate = useNavigate()
 	const datasetNameFromID = async (id: number) => {
 		name = await fetch(`http://localhost:5000/api/datasets/${id}`, {
 			method: 'GET',
@@ -157,7 +157,7 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 				{/* Action Buttons */}
 				<div className="space-y-2">
 					<div className="grid grid-cols-2 gap-2">
-						<Button className="bg-blue-600 hover:bg-blue-700 text-white">Evaluate</Button>
+						<Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => navigate(`/experiments?model_id=${id}`)}>Evaluate</Button>
 						<TrainModelDialog
 							modelIdInput={id}
 							onTrainSuccess={() => {

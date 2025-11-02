@@ -446,6 +446,42 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
             </DialogHeader>
 
             <div className="space-y-4 py-4">
+              {/* Target Variable first */}
+              <div className="space-y-2 min-w-0">
+                <Label>Target Variable</Label>
+                {columns && columns.length > 0 ? (
+                  <div className="w-full min-w-0 overflow-hidden">
+                    <Select value={targetVariable ?? undefined} onValueChange={(v) => setTargetVariable(v)}>
+                      <SelectTrigger className="w-full cursor-pointer max-w-full">
+                        <SelectValue placeholder="Select target variable" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white">
+                        {columns.map((c) => (
+                          <SelectItem key={c} value={c} className="hover:bg-gray-200 cursor-pointer">{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {targetVariable && (
+                      <div className="mt-2 text-sm break-words overflow-wrap-anywhere max-w-full">
+                        <span>Selected: </span>
+                        <strong>{targetVariable}</strong>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="w-full">
+                    <Input
+                      placeholder="Enter target variable name (unable to auto-detect columns)"
+                      value={targetVariable ?? ''}
+                      onChange={(e) => setTargetVariable(e.target.value)}
+                      className="w-full break-words"
+                    />
+                    <p className="text-sm text-gray-500 mt-1 break-words">Note: Column auto-detection is not available for this file type.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Input Features after Target Variable; includes warning if target is selected as a feature */}
               <div className="space-y-2 min-w-0">
                 <div className="flex items-center justify-between">
                   <Label>Input Features</Label>
@@ -499,6 +535,12 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                         <strong className="block break-all">{inputFeatures.join(', ')}</strong>
                       </div>
                     )}
+                    {targetVariable && inputFeatures && inputFeatures.includes(targetVariable) && (
+                      <p className="text-sm text-amber-600 mt-2 flex items-start gap-1">
+                        <span className="text-amber-600 font-semibold">⚠</span>
+                        <span>Warning: Target variable should not be included in input features.</span>
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="w-full">
@@ -509,49 +551,15 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                       className="w-full break-words"
                     />
                     <p className="text-sm text-gray-500 mt-1 break-words">Note: Column auto-detection is not available for this file type.</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2 min-w-0">
-                <Label>Target Variable</Label>
-                {columns && columns.length > 0 ? (
-                  <div className="w-full min-w-0 overflow-hidden">
-                    <Select value={targetVariable ?? undefined} onValueChange={(v) => setTargetVariable(v)}>
-                      <SelectTrigger className="w-full cursor-pointer max-w-full">
-                        <SelectValue placeholder="Select target variable" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white">
-                        {columns.map((c) => (
-                          <SelectItem key={c} value={c} className="hover:bg-gray-200 cursor-pointer">{c}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {targetVariable && (
-                      <div className="mt-2 text-sm break-words overflow-wrap-anywhere max-w-full">
-                        <span>Selected: </span>
-                        <strong>{targetVariable}</strong>
-                      </div>
-                    )}
                     {targetVariable && inputFeatures && inputFeatures.includes(targetVariable) && (
-                      <p className="text-sm text-amber-600 mt-1 flex items-start gap-1">
+                      <p className="text-sm text-amber-600 mt-2 flex items-start gap-1">
                         <span className="text-amber-600 font-semibold">⚠</span>
                         <span>Warning: Target variable should not be included in input features.</span>
                       </p>
                     )}
                   </div>
-                ) : (
-                  <div className="w-full">
-                    <Input
-                      placeholder="Enter target variable name (unable to auto-detect columns)"
-                      value={targetVariable ?? ''}
-                      onChange={(e) => setTargetVariable(e.target.value)}
-                      className="w-full break-words"
-                    />
-                    <p className="text-sm text-gray-500 mt-1 break-words">Note: Column auto-detection is not available for this file type.</p>
-                  </div>
                 )}
-                </div>
+              </div>
 
                 <div className="space-y-2 min-w-0">
                   <Label>Task</Label>

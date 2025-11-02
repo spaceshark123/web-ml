@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, HelpCircle } from "lucide-react"
 import { Button } from "./ui/button"
 import { Card, CardHeader, CardTitle, CardDescription } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Link } from "react-router-dom"
 import { API_BASE_URL } from "@/constants"
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
+import { Tooltip as UITooltip } from "@/components/ui/tooltip"
 
 interface Model {
   id: number
@@ -35,9 +36,11 @@ export function CompareContent() {
   const [selectedModel2, setSelectedModel2] = useState<number | null>(null)
   const [comparisonData, setComparisonData] = useState<ComparisonData | null>(null)
   const [loading, setLoading] = useState(false)
-  const [sortBy, setSortBy] = useState<string>("created_at")
+  const [sortBy, setSortBy] = useState<string>("accuracy")
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
-  const [selectedTask, setSelectedTask] = useState<'both' | 'classification' | 'regression'>('both')
+  // Separate task filters: leaderboard vs compare selectors
+  const [leaderboardTask, setLeaderboardTask] = useState<'both' | 'classification' | 'regression'>('classification')
+  const [compareTask, setCompareTask] = useState<'both' | 'classification' | 'regression'>('both')
 
   useEffect(() => {
     fetchModels()
@@ -106,9 +109,15 @@ export function CompareContent() {
     return sortOrder === "asc" ? result : -result
   })
 
-  const filteredModels = sortedModels.filter((model) => {
+  const compareFilteredModels = sortedModels.filter((model) => {
     const datasetOk = selectedDataset === "all" || model.dataset_id === Number.parseInt(selectedDataset)
-    const taskOk = selectedTask === 'both' || (model.type === selectedTask)
+    const taskOk = compareTask === 'both' || (model.type === compareTask)
+    return datasetOk && taskOk
+  })
+
+  const leaderboardFilteredModels = sortedModels.filter((model) => {
+    const datasetOk = selectedDataset === "all" || model.dataset_id === Number.parseInt(selectedDataset)
+    const taskOk = leaderboardTask === 'both' || (model.type === leaderboardTask)
     return datasetOk && taskOk
   })
 
@@ -172,7 +181,7 @@ export function CompareContent() {
         <p className="text-gray-500">Side-by-side model comparison and performance metrics</p>
       </div>
 
-  <div className="p-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
+  <div className="p-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Model Selection */}
         <div className="lg:col-span-1">
           <Card className="p-6">
@@ -195,7 +204,19 @@ export function CompareContent() {
                   </SelectContent>
                 </Select>
               </div>
-
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Filter by Task</label>
+                <Select value={compareTask} onValueChange={(v) => setCompareTask(v as any)}>
+                  <SelectTrigger className="bg-white border-gray-300">
+                    <SelectValue placeholder="Task" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    <SelectItem value="both">Both Tasks</SelectItem>
+                    <SelectItem value="classification">Classification</SelectItem>
+                    <SelectItem value="regression">Regression</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block">Model 1</label>
                 <Select
@@ -206,7 +227,7 @@ export function CompareContent() {
                     <SelectValue placeholder="Select first model" />
                   </SelectTrigger>
                   <SelectContent className="bg-white">
-                    {filteredModels.map((m) => (
+                    {compareFilteredModels.map((m) => (
                       <SelectItem key={m.id} value={m.id.toString()}>
                         {m.name}
                       </SelectItem>
@@ -225,7 +246,7 @@ export function CompareContent() {
                     <SelectValue placeholder="Select second model" />
                   </SelectTrigger>
                   <SelectContent className="bg-white">
-                    {filteredModels.map((m) => (
+                    {compareFilteredModels.map((m) => (
                       <SelectItem key={m.id} value={m.id.toString()}>
                         {m.name}
                       </SelectItem>
@@ -249,17 +270,17 @@ export function CompareContent() {
           {comparisonData ? (
             <div className="space-y-6">
               {/* Model Info Cards */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-4">
                 <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                   <CardHeader>
-                    <CardTitle className="text-xl">{comparisonData.model1.name}</CardTitle>
+                    <CardTitle className="text-lg">{comparisonData.model1.name}</CardTitle>
                     <CardDescription>{comparisonData.model1.model_type}</CardDescription>
                   </CardHeader>
                 </Card>
 
                 <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
                   <CardHeader>
-                    <CardTitle className="text-xl">{comparisonData.model2.name}</CardTitle>
+                    <CardTitle className="text-lg">{comparisonData.model2.name}</CardTitle>
                     <CardDescription>{comparisonData.model2.model_type}</CardDescription>
                   </CardHeader>
                 </Card>
@@ -462,8 +483,8 @@ export function CompareContent() {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-2xl font-bold text-gray-900">Models Leaderboard</h3>
             <div className="flex gap-3">
-              {/* Task filter */}
-              <Select value={selectedTask} onValueChange={(v) => setSelectedTask(v as any)}>
+              {/* Leaderboard Task filter */}
+              <Select value={leaderboardTask} onValueChange={(v) => setLeaderboardTask(v as any)}>
                 <SelectTrigger className="w-40 bg-white border-gray-300">
                   <SelectValue placeholder="Task" />
                 </SelectTrigger>
@@ -499,72 +520,126 @@ export function CompareContent() {
             </div>
           </div>
 
-          <div className="overflow-x-auto" key={filteredModels.toLocaleString()}>
-            <table className="w-full">
+          <div className="w-full overflow-x-auto" key={leaderboardFilteredModels.toLocaleString()}>
+            <table className="w-full min-w-[900px] table-auto">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Model Name</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Type</th>
-                  {(selectedTask === 'both' || selectedTask === 'classification') && (
+                  <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">Model Name</th>
+                  <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">Type</th>
+                  {(leaderboardTask === 'both' || leaderboardTask === 'classification') && (
                     <>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Accuracy</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Precision</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Recall</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">F1 Score</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">ROC-AUC</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">Accuracy
+                          <UITooltip content="Share of correct predictions (weighted across classes).">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">Precision
+                          <UITooltip content="TP / (TP + FP) (weighted).">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">Recall
+                          <UITooltip content="TP / (TP + FN) (weighted).">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">F1 Score
+                          <UITooltip content="Harmonic mean of precision and recall (weighted).">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">ROC-AUC
+                          <UITooltip content="Area under ROC curve; ranking quality between positives and negatives.">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
                     </>
                   )}
-                  {(selectedTask === 'both' || selectedTask === 'regression') && (
+                  {(leaderboardTask === 'both' || leaderboardTask === 'regression') && (
                     <>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">MSE</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">RMSE</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">MAE</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">R² Score</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">MSE
+                          <UITooltip content="Mean Squared Error (lower is better).">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">RMSE
+                          <UITooltip content="Root Mean Squared Error = sqrt(MSE).">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">MAE
+                          <UITooltip content="Mean Absolute Error (lower is better).">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">R² Score
+                          <UITooltip content="Coefficient of determination; proportion of variance explained.">
+                            <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                          </UITooltip>
+                        </div>
+                      </th>
                     </>
                   )}
                 </tr>
               </thead>
               <tbody>
-                {filteredModels.map((model, idx) => (
+                {leaderboardFilteredModels.map((model, idx) => (
                   <tr key={model.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-xs font-semibold mr-3">
+                    <td className="py-2 px-3 text-sm font-medium text-gray-900 max-w-[220px] truncate" title={model.name}>
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-[10px] font-semibold mr-2">
                         {idx + 1}
                       </span>
                       {model.name}
                     </td>
-                    <td className="py-3 px-4 text-sm text-gray-600">{model.model_type}</td>
-                    {(selectedTask === 'both' || selectedTask === 'classification') && (
+                    <td className="py-2 px-3 text-sm text-gray-600 whitespace-nowrap">{model.model_type}</td>
+                    {(leaderboardTask === 'both' || leaderboardTask === 'classification') && (
                       <>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.accuracy !== undefined ? (model.metrics.accuracy * 100).toFixed(2) + "%" : "N/A"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.precision !== undefined ? model.metrics.precision.toFixed(4) : "N/A"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.recall !== undefined ? model.metrics.recall.toFixed(4) : "N/A"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.f1 !== undefined ? model.metrics.f1.toFixed(4) : "N/A"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.roc_auc !== undefined ? model.metrics.roc_auc.toFixed(4) : "N/A"}
                         </td>
                       </>
                     )}
-                    {(selectedTask === 'both' || selectedTask === 'regression') && (
+                    {(leaderboardTask === 'both' || leaderboardTask === 'regression') && (
                       <>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.mse !== undefined ? model.metrics.mse.toFixed(4) : "N/A"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.rmse !== undefined ? model.metrics.rmse.toFixed(4) : (model.metrics.mse !== undefined ? Math.sqrt(model.metrics.mse).toFixed(4) : "N/A")}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.mae !== undefined ? model.metrics.mae.toFixed(4) : "N/A"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-2 px-3 text-sm text-gray-600">
                           {model.metrics.r2 !== undefined ? model.metrics.r2.toFixed(4) : "N/A"}
                         </td>
                       </>
@@ -575,7 +650,7 @@ export function CompareContent() {
             </table>
           </div>
 
-          {filteredModels.length === 0 && (
+          {leaderboardFilteredModels.length === 0 && (
             <div className="text-center py-8">
               <p className="text-gray-500">No models available for comparison</p>
             </div>

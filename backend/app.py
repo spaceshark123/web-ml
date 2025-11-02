@@ -879,6 +879,14 @@ def delete_dataset(dataset_id):
         except Exception as e:
             print(f"Failed to remove file {ds.file_path}: {str(e)}")
 
+        # Cascade delete: remove all models associated with this dataset (for this user)
+        try:
+            associated_models = ModelEntry.query.filter_by(dataset_id=ds.id, user_id=current_user.id).all()
+            for m in associated_models:
+                db.session.delete(m)
+        except Exception as cascade_err:
+            print(f"Error deleting associated models for dataset {dataset_id}: {cascade_err}")
+
         db.session.delete(ds)
         db.session.commit()
         return jsonify({'msg': 'Deleted'}), 200
@@ -1660,6 +1668,9 @@ def delete_model(model_id):
     m = ModelEntry.query.get_or_404(model_id)
     if m.user_id != current_user.id:
         return jsonify({'error': 'Forbidden'}), 403
+    # Cascade delete: remove any experiments associated with this model if stored separately in future
+    # Currently, experiments are derived/evaluated on demand and stored in model.metrics/history on frontend.
+    # If a server-side Experiment table is added, delete rows here filtering by model_id and user.
     db.session.delete(m)
     db.session.commit()
     return jsonify({'msg': 'Model deleted'})

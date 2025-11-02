@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Trash2 } from "lucide-react"
 import { Button } from "./ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -58,6 +58,31 @@ function loadExperimentHistory(): SavedExperiment[] {
 		return []
 	}
 }
+
+function deleteExperimentFromHistory(id: string): SavedExperiment[] {
+	try {
+		const raw = localStorage.getItem(EXPERIMENT_HISTORY_KEY)
+		const history: SavedExperiment[] = raw ? JSON.parse(raw) : []
+		const updated = history.filter((h) => h.id !== id)
+		localStorage.setItem(EXPERIMENT_HISTORY_KEY, JSON.stringify(updated))
+		return updated
+	} catch {
+		return []
+	}
+}
+
+// Reserved for future cross-page usage:
+// function deleteExperimentsForModel(modelId: number): SavedExperiment[] {
+//     try {
+//         const raw = localStorage.getItem(EXPERIMENT_HISTORY_KEY)
+//         const history: SavedExperiment[] = raw ? JSON.parse(raw) : []
+//         const updated = history.filter((h) => h.data?.model_id !== modelId)
+//         localStorage.setItem(EXPERIMENT_HISTORY_KEY, JSON.stringify(updated))
+//         return updated
+//     } catch {
+//         return []
+//     }
+// }
 
 // Custom tooltip for ROC curves was inlined at usage sites to avoid scope/runtime issues.
 
@@ -181,6 +206,13 @@ export function ExperimentsContent() {
 			if (experiment) {
 				setExperimentData(experiment.data)
 			}
+		}
+
+		// If a model_id is provided, preselect it in the Model selector
+		const modelId = searchParams.get('model_id')
+		if (modelId) {
+			setType('model')
+			setSelectedModel(modelId)
 		}
 	}, [])
 
@@ -477,16 +509,27 @@ export function ExperimentsContent() {
 										minute: '2-digit'
 									})
 									return (
-										<div
-											key={exp.id}
-											onClick={() => setExperimentData(exp.data)}
-											className="p-3 bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded cursor-pointer transition-colors"
-										>
-											<div className="font-medium text-sm text-gray-900">{exp.data.model_name}</div>
-											<div className="text-xs text-gray-600 mt-1">
-												{exp.data.model_type} • {exp.data.type}
+										<div key={exp.id} className="p-3 bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded transition-colors group">
+											<button
+												className="float-right opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700"
+												title="Delete experiment"
+												onClick={(e) => {
+													e.stopPropagation()
+													const ok = window.confirm('Delete this experiment from history? This cannot be undone.')
+													if (!ok) return
+													const updated = deleteExperimentFromHistory(exp.id)
+													setExperimentHistory(updated)
+												}}
+											>
+												<Trash2 className="w-4 h-4" />
+											</button>
+											<div onClick={() => setExperimentData(exp.data)} className="cursor-pointer">
+												<div className="font-medium text-sm text-gray-900">{exp.data.model_name}</div>
+												<div className="text-xs text-gray-600 mt-1">
+													{exp.data.model_type} • {exp.data.type}
+												</div>
+												<div className="text-xs text-gray-500 mt-1">{timeStr}</div>
 											</div>
-											<div className="text-xs text-gray-500 mt-1">{timeStr}</div>
 										</div>
 									)
 								})}

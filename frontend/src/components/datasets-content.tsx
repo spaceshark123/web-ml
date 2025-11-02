@@ -7,7 +7,6 @@ import { Link } from "react-router-dom"
 import { useEffect, useState } from "react"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import { API_BASE_URL } from "@/constants"
-import axios from "axios"
 
 export interface Dataset {
 	id: number
@@ -25,14 +24,7 @@ export interface Dataset {
 	description?: string
 }
 
-const api = axios.create({
-	baseURL: API_BASE_URL,
-	withCredentials: true,
-	headers: {
-		'Content-Type': 'application/json',
-		'Accept': 'application/json',
-	},
-});
+// Note: direct fetch is used throughout; axios not required here
 
 export function DatasetsContent() {
 	const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -193,6 +185,20 @@ export function DatasetsContent() {
 									const ok = window.confirm(`Delete dataset "${dataset.name}"? This will remove the file and cannot be undone.`)
 									if (!ok) return
 									try {
+										// Before deleting the dataset, collect model IDs associated with it
+										let modelIdsForDataset: number[] = []
+										try {
+											const preResp = await fetch(`${API_BASE_URL}/models?dataset_id=${dataset.id}`, {
+												method: 'GET',
+												credentials: 'include',
+												headers: { 'Accept': 'application/json' },
+											})
+											if (preResp.ok) {
+												const preData = await preResp.json()
+												modelIdsForDataset = Array.isArray(preData) ? preData.map((m: any) => m.id) : []
+											}
+										} catch {}
+
 										const response = await fetch(`${API_BASE_URL}/datasets/${dataset.id}`, {
 											method: 'DELETE',
 											credentials: 'include',
@@ -209,6 +215,16 @@ export function DatasetsContent() {
 											alert(`Failed to delete dataset: ${msg}`)
 											return
 										}
+
+										// After successful deletion, remove related experiments from localStorage
+										try {
+											const key = 'web-ml-experiment-history'
+											const raw = localStorage.getItem(key)
+											const history: Array<{ id: string; timestamp: number; data: { model_id: number } }> = raw ? JSON.parse(raw) : []
+											const toRemove = new Set<number>(modelIdsForDataset)
+											const updated = history.filter((h) => !toRemove.has(h.data?.model_id))
+											localStorage.setItem(key, JSON.stringify(updated))
+										} catch {}
 
 										// Refresh the datasets list
 										await fetchDatasets();

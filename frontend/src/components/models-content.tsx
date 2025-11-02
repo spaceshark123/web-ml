@@ -6,7 +6,6 @@ import { Link } from "react-router-dom"
 import { useEffect, useState } from "react"
 import { CreateModelDialog } from "./create-model-dialog"
 import { API_BASE_URL } from "@/constants"
-import axios from "axios"
 import { ModelCard } from "./model-card"
 
 export interface Model {
@@ -31,14 +30,6 @@ export interface Model {
 	error?: string
 }
 
-const api = axios.create({
-	baseURL: API_BASE_URL,
-	withCredentials: true,
-	headers: {
-		'Content-Type': 'application/json',
-		'Accept': 'application/json',
-	},
-});
 
 export function ModelsContent() {
 	const [models, setModels] = useState<Model[]>([])
@@ -277,6 +268,15 @@ export function ModelsContent() {
 											alert(`Failed to delete model: ${msg}`)
 											return
 										}
+
+										// Remove associated experiments from localStorage history
+										try {
+											const key = 'web-ml-experiment-history';
+											const raw = localStorage.getItem(key);
+											const history = raw ? JSON.parse(raw) as Array<{ id: string; timestamp: number; data: { model_id: number } }> : [];
+											const updated = history.filter(h => h.data?.model_id !== model.id);
+											localStorage.setItem(key, JSON.stringify(updated));
+										} catch {}
 
 										// Refresh the models list
 										await fetchModels();
