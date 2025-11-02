@@ -945,6 +945,7 @@ def compare_models_list():
             'id': m.id,
             'name': m.name,
             'model_type': m.model_type,
+            'dataset_id': m.dataset_id,
             'metrics': json.loads(m.metrics) if m.metrics else {},
         })
     return jsonify(out)

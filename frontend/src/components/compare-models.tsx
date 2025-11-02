@@ -13,6 +13,7 @@ interface Model {
   id: number
   name: string
   model_type: string
+  dataset_id?: number
   metrics: Record<string, any>
 }
 
@@ -27,6 +28,8 @@ interface ComparisonData {
 
 export function CompareModels() {
   const [models, setModels] = useState<Model[]>([])
+  const [datasets, setDatasets] = useState<Array<{ id: number; name: string }>>([])
+  const [selectedDataset, setSelectedDataset] = useState<string>("all")
   const [selectedModel1, setSelectedModel1] = useState<number | null>(null)
   const [selectedModel2, setSelectedModel2] = useState<number | null>(null)
   const [comparisonData, setComparisonData] = useState<ComparisonData | null>(null)
@@ -36,7 +39,23 @@ export function CompareModels() {
 
   useEffect(() => {
     fetchModels()
+    fetchDatasets()
   }, [])
+
+  const fetchDatasets = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/datasets`, {
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setDatasets(data.map((ds: any) => ({ id: ds.id, name: ds.name })))
+      }
+    } catch (error) {
+      console.error("Failed to fetch datasets:", error)
+    }
+  }
 
   const fetchModels = async () => {
     try {
@@ -81,6 +100,11 @@ export function CompareModels() {
     const bVal = b.metrics[sortBy] ?? 0
     const result = aVal > bVal ? 1 : -1
     return sortOrder === "asc" ? result : -result
+  })
+
+  const filteredModels = sortedModels.filter((model) => {
+    if (selectedDataset === "all") return true
+    return model.dataset_id === Number.parseInt(selectedDataset)
   })
 
   const getMetricComparison = (_: string, val1: any, val2: any) => {
@@ -151,6 +175,23 @@ export function CompareModels() {
 
             <div className="space-y-4">
               <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Filter by Dataset</label>
+                <Select value={selectedDataset} onValueChange={setSelectedDataset}>
+                  <SelectTrigger className="bg-white border-gray-300">
+                    <SelectValue placeholder="All Datasets" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    <SelectItem value="all">All Datasets</SelectItem>
+                    {datasets.map((ds) => (
+                      <SelectItem key={ds.id} value={ds.id.toString()}>
+                        {ds.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block">Model 1</label>
                 <Select
                   value={selectedModel1?.toString() || ""}
@@ -160,7 +201,7 @@ export function CompareModels() {
                     <SelectValue placeholder="Select first model" />
                   </SelectTrigger>
                   <SelectContent className="bg-white">
-                    {models.map((m) => (
+                    {filteredModels.map((m) => (
                       <SelectItem key={m.id} value={m.id.toString()}>
                         {m.name}
                       </SelectItem>
@@ -179,7 +220,7 @@ export function CompareModels() {
                     <SelectValue placeholder="Select second model" />
                   </SelectTrigger>
                   <SelectContent className="bg-white">
-                    {models.map((m) => (
+                    {filteredModels.map((m) => (
                       <SelectItem key={m.id} value={m.id.toString()}>
                         {m.name}
                       </SelectItem>
@@ -457,7 +498,7 @@ export function CompareModels() {
                 </tr>
               </thead>
               <tbody>
-                {sortedModels.map((model, idx) => (
+                {filteredModels.map((model, idx) => (
                   <tr key={model.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4 text-sm font-medium text-gray-900">
                       <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-xs font-semibold mr-3">
@@ -484,7 +525,7 @@ export function CompareModels() {
             </table>
           </div>
 
-          {sortedModels.length === 0 && (
+          {filteredModels.length === 0 && (
             <div className="text-center py-8">
               <p className="text-gray-500">No models available for comparison</p>
             </div>

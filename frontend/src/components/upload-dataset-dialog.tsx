@@ -375,7 +375,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       <DialogTrigger asChild>
         <Button className="bg-blue-600 hover:bg-blue-700 text-white">{text ? text : "Upload New Dataset"}</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden">
         {step === 'select' ? (
           <>
             <DialogHeader>
@@ -446,15 +446,43 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
             </DialogHeader>
 
             <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Input Features</Label>
+              <div className="space-y-2 min-w-0">
+                <div className="flex items-center justify-between">
+                  <Label>Input Features</Label>
+                  {columns && columns.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const allExceptTarget = columns.filter(c => c !== targetVariable)
+                        const isAllSelected = allExceptTarget.length > 0 && 
+                          allExceptTarget.every(col => inputFeatures?.includes(col))
+                        
+                        if (isAllSelected) {
+                          setInputFeatures([])
+                        } else {
+                          setInputFeatures(allExceptTarget)
+                        }
+                      }}
+                      className="text-xs h-7"
+                    >
+                      {(() => {
+                        const allExceptTarget = columns.filter(c => c !== targetVariable)
+                        const isAllSelected = allExceptTarget.length > 0 && 
+                          allExceptTarget.every(col => inputFeatures?.includes(col))
+                        return isAllSelected ? "Deselect All" : "Select All"
+                      })()}
+                    </Button>
+                  )}
+                </div>
                 {columns && columns.length > 0 ? (
-                  <div>
+                  <div className="w-full min-w-0 overflow-hidden">
                     <MultiSelect
                       values={inputFeatures || []}
                       onValuesChange={(values) => setInputFeatures(values)}
                     >
-                      <MultiSelectTrigger className="w-full cursor-pointer">
+                      <MultiSelectTrigger className="w-full cursor-pointer max-w-full">
                         <MultiSelectValue placeholder="Select input features" />
                       </MultiSelectTrigger>
                       <MultiSelectContent className="bg-white">
@@ -466,27 +494,31 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                       </MultiSelectContent>
                     </MultiSelect>
                     {inputFeatures && inputFeatures.length > 0 && (
-                      <div className="mt-2 text-sm">Selected: <strong>{inputFeatures.join(', ')}</strong></div>
+                      <div className="mt-2 text-sm break-words overflow-wrap-anywhere max-w-full">
+                        <span className="block">Selected:</span>
+                        <strong className="block break-all">{inputFeatures.join(', ')}</strong>
+                      </div>
                     )}
                   </div>
                 ) : (
-                  <div>
+                  <div className="w-full">
                     <Input
                       placeholder="Enter input feature names, separated by commas (unable to auto-detect columns)"
                       value={inputFeatures ? inputFeatures.join(', ') : ''}
                       onChange={(e) => setInputFeatures(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                      className="w-full break-words"
                     />
-                    <p className="text-sm text-gray-500 mt-1">Note: Column auto-detection is not available for this file type.</p>
+                    <p className="text-sm text-gray-500 mt-1 break-words">Note: Column auto-detection is not available for this file type.</p>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-0">
                 <Label>Target Variable</Label>
                 {columns && columns.length > 0 ? (
-                  <div>
+                  <div className="w-full min-w-0 overflow-hidden">
                     <Select value={targetVariable ?? undefined} onValueChange={(v) => setTargetVariable(v)}>
-                      <SelectTrigger className="w-full cursor-pointer">
+                      <SelectTrigger className="w-full cursor-pointer max-w-full">
                         <SelectValue placeholder="Select target variable" />
                       </SelectTrigger>
                       <SelectContent className="bg-white">
@@ -495,25 +527,37 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                         ))}
                       </SelectContent>
                     </Select>
-                    {targetVariable && <div className="mt-2 text-sm">Selected: <strong>{targetVariable}</strong></div>}
+                    {targetVariable && (
+                      <div className="mt-2 text-sm break-words overflow-wrap-anywhere max-w-full">
+                        <span className="block">Selected:</span>
+                        <strong className="block break-all">{targetVariable}</strong>
+                      </div>
+                    )}
+                    {targetVariable && inputFeatures && inputFeatures.includes(targetVariable) && (
+                      <p className="text-sm text-amber-600 mt-1 flex items-start gap-1">
+                        <span className="text-amber-600 font-semibold">⚠</span>
+                        <span>Warning: Target variable should not be included in input features.</span>
+                      </p>
+                    )}
                   </div>
                 ) : (
-                  <div>
+                  <div className="w-full">
                     <Input
                       placeholder="Enter target variable name (unable to auto-detect columns)"
                       value={targetVariable ?? ''}
                       onChange={(e) => setTargetVariable(e.target.value)}
+                      className="w-full break-words"
                     />
-                    <p className="text-sm text-gray-500 mt-1">Note: Column auto-detection is not available for this file type.</p>
+                    <p className="text-sm text-gray-500 mt-1 break-words">Note: Column auto-detection is not available for this file type.</p>
                   </div>
                 )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 min-w-0">
                   <Label>Task</Label>
                   <div className="flex items-center gap-3">
                     <Select value={regression ? "regression" : "classification"} onValueChange={(v) => setRegression(v === "regression")}>
-                      <SelectTrigger className="w-full cursor-pointer">
+                      <SelectTrigger className="w-full cursor-pointer max-w-full">
                         <SelectValue placeholder="Select task type" />
                       </SelectTrigger>
                       <SelectContent className="bg-white">
@@ -526,14 +570,14 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
 
               <div className="space-y-2">
                 <Label>Test Split (%)</Label>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <Input
                     type="number"
                     min={1}
                     max={99}
                     value={splitPercent}
                     onChange={(e) => setSplitPercent(Number(e.target.value))}
-                    className="w-28"
+                    className="w-28 flex-shrink-0"
                   />
                   <div className="text-sm text-gray-500">percent of data used for testing (1-99)</div>
                 </div>

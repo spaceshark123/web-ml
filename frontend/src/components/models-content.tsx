@@ -41,10 +41,12 @@ const api = axios.create({
 
 export function ModelsContent() {
 	const [models, setModels] = useState<Model[]>([])
+	const [datasets, setDatasets] = useState<Array<{ id: number; name: string }>>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 	const [searchQuery, setSearchQuery] = useState("")
 	const [filterType, setFilterType] = useState("all")
+	const [selectedDatasets, setSelectedDatasets] = useState<number[]>([])
 
 
 	const fetchModels = async () => {
@@ -105,11 +107,28 @@ export function ModelsContent() {
 	const filteredModels = models.filter((model) => {
 		const matchesSearch = model.name.toLowerCase().includes(searchQuery.toLowerCase());
 		const matchesType = filterType === "all" || model.model_type === filterType;
-		return matchesSearch && matchesType;
+		const matchesDataset = selectedDatasets.length === 0 || selectedDatasets.includes(model.dataset_id);
+		return matchesSearch && matchesType && matchesDataset;
 	});
+
+	const fetchDatasets = async () => {
+		try {
+			const response = await fetch(`${API_BASE_URL}/datasets`, {
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+			})
+			if (response.ok) {
+				const data = await response.json()
+				setDatasets(data.map((ds: any) => ({ id: ds.id, name: ds.name })))
+			}
+		} catch (error) {
+			console.error("Failed to fetch datasets:", error)
+		}
+	}
 
 	useEffect(() => {
 		fetchModels()
+		fetchDatasets()
 	}, [])
 
 	return (
@@ -137,7 +156,7 @@ export function ModelsContent() {
 
 			{/* Search and Filter Section */}
 			<div className="bg-white border-b border-gray-200 px-8 py-6">
-				<div className="flex items-center gap-4">
+				<div className="flex items-center gap-4 mb-4">
 					<div className="flex-1 relative">
 						<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
 						<Input
@@ -169,9 +188,50 @@ export function ModelsContent() {
 						onClick={() => {
 							setSearchQuery("");
 							setFilterType("all");
+							setSelectedDatasets([]);
 						}}
 					>
 						Clear Filters
+					</Button>
+				</div>
+				
+				{/* Dataset Multi-Select Filter */}
+				<div className="flex items-center gap-3">
+					<label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Datasets:</label>
+					<div className="flex-1 flex flex-wrap gap-2">
+						{datasets.map((ds) => (
+							<button
+								key={ds.id}
+								onClick={() => {
+									setSelectedDatasets((prev) =>
+										prev.includes(ds.id)
+											? prev.filter((id) => id !== ds.id)
+											: [...prev, ds.id]
+									)
+								}}
+								className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+									selectedDatasets.includes(ds.id)
+										? "bg-blue-600 text-white"
+										: "bg-gray-200 text-gray-700 hover:bg-gray-300"
+								}`}
+							>
+								{ds.name}
+							</button>
+						))}
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => {
+							if (selectedDatasets.length === datasets.length) {
+								setSelectedDatasets([])
+							} else {
+								setSelectedDatasets(datasets.map((ds) => ds.id))
+							}
+						}}
+						className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-white whitespace-nowrap"
+					>
+						{selectedDatasets.length === datasets.length ? "Deselect All" : "Select All"}
 					</Button>
 				</div>
 			</div>
