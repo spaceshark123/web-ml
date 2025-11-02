@@ -27,6 +27,7 @@ export interface Model {
 		mae?: number
 		r2_score?: number
 	}
+	early_stopped?: boolean
 	error?: string
 }
 

@@ -19,14 +19,15 @@ interface TrainingVisualizerProps {
   regression: boolean
   modelId: number
   isVisible: boolean
-  onCancel?: () => void
   onComplete?: () => void
+  startPaused?: boolean
 }
 
-export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, onComplete }: TrainingVisualizerProps) {
+export function TrainingVisualizer({ modelId, isVisible, regression, onComplete, startPaused = false }: TrainingVisualizerProps) {
   const [metrics, setMetrics] = useState<TrainingMetrics[]>([])
   const [isTraining, setIsTraining] = useState(true)
-  const [isPaused, setIsPaused] = useState(false)
+  const [isPaused, setIsPaused] = useState(startPaused)
+  const [isEarlyStopping, setIsEarlyStopping] = useState(false)
   const [isRegression, setIsRegression] = useState(regression)
   const [error, setError] = useState<string | null>(null)
   const socketRef = useRef<any>(null)
@@ -35,11 +36,18 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
   )
   // Zoom/Pan state shared across charts
   const [xDomain, setXDomain] = useState<[number, number] | null>(null)
+  const [lossYDomain, setLossYDomain] = useState<[number, number] | null>(null)
+  const [metricYDomain, setMetricYDomain] = useState<[number, number] | null>(null)
   // Individual chart containers for accurate coordinate mapping
   const lossContainerRef = useRef<HTMLDivElement | null>(null)
   const metricContainerRef = useRef<HTMLDivElement | null>(null)
   const isPanningRef = useRef(false)
   const panStartRef = useRef<{ x: number; domain: [number, number]; width: number } | null>(null)
+  // Momentum tracking
+  const velocityRef = useRef(0)
+  const lastMoveTimeRef = useRef(0)
+  const lastMoveXRef = useRef(0)
+  const momentumAnimationRef = useRef<number | null>(null)
 
   const getDataBounds = () => {
     if (metrics.length === 0) return { min: 0, max: 1 }
@@ -52,10 +60,34 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
     return { min, max }
   }
 
+  const getYDataBounds = (dataKey: 'loss' | 'metric', visibleMetrics: TrainingMetrics[]) => {
+    if (visibleMetrics.length === 0) return { min: 0, max: 1 }
+    let min = Infinity
+    let max = -Infinity
+    for (const m of visibleMetrics) {
+      const value = dataKey === 'loss' ? m.loss : m.metric
+      if (value !== undefined) {
+        if (value < min) min = value
+        if (value > max) max = value
+      }
+    }
+    if (min === Infinity || max === -Infinity) return { min: 0, max: 1 }
+    // Add 10% padding
+    const padding = (max - min) * 0.1
+    return { min: min - padding, max: max + padding }
+  }
+
+  const getVisibleMetrics = () => {
+    if (!xDomain || metrics.length === 0) return metrics
+    return metrics.filter(m => m.epoch >= xDomain[0] && m.epoch <= xDomain[1])
+  }
+
   // Initialize domain when metrics first arrive or when domain becomes invalid
   useEffect(() => {
     if (metrics.length === 0) {
       setXDomain(null)
+      setLossYDomain(null)
+      setMetricYDomain(null)
       return
     }
     if (!xDomain) {
@@ -70,8 +102,16 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
         setXDomain([min, max])
       }
     }
+    // Update Y domains based on visible data
+    const visible = getVisibleMetrics()
+    const lossYBounds = getYDataBounds('loss', visible)
+    setLossYDomain([lossYBounds.min, lossYBounds.max])
+    if (visible.length > 0 && visible[0].metric !== undefined) {
+      const metricYBounds = getYDataBounds('metric', visible)
+      setMetricYDomain([metricYBounds.min, metricYBounds.max])
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metrics])
+  }, [metrics, xDomain])
 
   const clampDomain = (domain: [number, number]): [number, number] => {
     const { min, max } = getDataBounds()
@@ -108,14 +148,33 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
     let newMax = anchor + (d1 - anchor) * zoom
     const clamped = clampDomain([newMin, newMax])
     setXDomain(clamped)
+    
+    // Update Y domains after zoom
+    const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
+    const lossYBounds = getYDataBounds('loss', visible)
+    setLossYDomain([lossYBounds.min, lossYBounds.max])
+    if (visible.length > 0 && visible[0].metric !== undefined) {
+      const metricYBounds = getYDataBounds('metric', visible)
+      setMetricYDomain([metricYBounds.min, metricYBounds.max])
+    }
   }
 
   const makeMouseDownHandler = (container: React.RefObject<HTMLDivElement | null>): React.MouseEventHandler<HTMLDivElement> => (e) => {
     if (isTraining) return
     if (!xDomain || !container.current) return
+    
+    // Cancel any ongoing momentum animation
+    if (momentumAnimationRef.current !== null) {
+      cancelAnimationFrame(momentumAnimationRef.current)
+      momentumAnimationRef.current = null
+    }
+    
     isPanningRef.current = true
     const rect = container.current.getBoundingClientRect()
     panStartRef.current = { x: e.clientX, domain: xDomain, width: rect.width }
+    velocityRef.current = 0
+    lastMoveTimeRef.current = Date.now()
+    lastMoveXRef.current = e.clientX
     // Change cursor
     container.current.style.cursor = 'grabbing'
   }
@@ -123,19 +182,95 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
   const handleMouseMove: React.MouseEventHandler<HTMLDivElement> = (e) => {
     if (isTraining) return
     if (!isPanningRef.current || !panStartRef.current) return
+    
+    const now = Date.now()
+    const dt = now - lastMoveTimeRef.current
+    
+    if (dt > 0) {
+      const dx = e.clientX - lastMoveXRef.current
+      velocityRef.current = dx / dt // pixels per millisecond
+    }
+    
+    lastMoveTimeRef.current = now
+    lastMoveXRef.current = e.clientX
+    
     const width = panStartRef.current.width || 1
     const dx = e.clientX - panStartRef.current.x
     const [s0, s1] = panStartRef.current.domain
     const span = s1 - s0
     const deltaEpoch = (dx / Math.max(1, width)) * span
     const newDomain: [number, number] = [s0 - deltaEpoch, s1 - deltaEpoch]
-    setXDomain(clampDomain(newDomain))
+    const clamped = clampDomain(newDomain)
+    setXDomain(clamped)
+    
+    // Update Y domains during pan
+    const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
+    const lossYBounds = getYDataBounds('loss', visible)
+    setLossYDomain([lossYBounds.min, lossYBounds.max])
+    if (visible.length > 0 && visible[0].metric !== undefined) {
+      const metricYBounds = getYDataBounds('metric', visible)
+      setMetricYDomain([metricYBounds.min, metricYBounds.max])
+    }
+  }
+
+  const applyMomentum = () => {
+    if (!xDomain || Math.abs(velocityRef.current) < 0.01) {
+      momentumAnimationRef.current = null
+      return
+    }
+    
+    const { min, max } = getDataBounds()
+    const [d0, d1] = xDomain
+    const span = d1 - d0
+    
+    // Apply velocity (convert from pixels/ms to epochs, assuming same width as last pan)
+    const width = panStartRef.current?.width || 1
+    const deltaEpoch = -(velocityRef.current * 16) * (span / width) // ~16ms per frame
+    
+    let newMin = d0 + deltaEpoch
+    let newMax = d1 + deltaEpoch
+    
+    // Clamp to bounds
+    if (newMin < min) {
+      newMin = min
+      newMax = min + span
+      velocityRef.current = 0
+    }
+    if (newMax > max) {
+      newMax = max
+      newMin = max - span
+      velocityRef.current = 0
+    }
+    
+    const clamped = clampDomain([newMin, newMax])
+    setXDomain(clamped)
+    
+    // Update Y domains during momentum
+    const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
+    const lossYBounds = getYDataBounds('loss', visible)
+    setLossYDomain([lossYBounds.min, lossYBounds.max])
+    if (visible.length > 0 && visible[0].metric !== undefined) {
+      const metricYBounds = getYDataBounds('metric', visible)
+      setMetricYDomain([metricYBounds.min, metricYBounds.max])
+    }
+    
+    // Apply friction
+    velocityRef.current *= 0.95
+    
+    // Continue animation
+    momentumAnimationRef.current = requestAnimationFrame(applyMomentum)
   }
 
   const endPan = () => {
     // Reset cursors on both containers
     if (lossContainerRef.current) lossContainerRef.current.style.cursor = 'default'
     if (metricContainerRef.current) metricContainerRef.current.style.cursor = 'default'
+    
+    if (isPanningRef.current && Math.abs(velocityRef.current) > 0.1) {
+      // Start momentum animation
+      momentumAnimationRef.current = requestAnimationFrame(applyMomentum)
+    }
+    
     isPanningRef.current = false
     panStartRef.current = null
   }
@@ -149,8 +284,23 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
   }
 
   const handleDoubleClick: React.MouseEventHandler<HTMLDivElement> = () => {
+    // Cancel any momentum animation
+    if (momentumAnimationRef.current !== null) {
+      cancelAnimationFrame(momentumAnimationRef.current)
+      momentumAnimationRef.current = null
+    }
+    velocityRef.current = 0
+    
     const { min, max } = getDataBounds()
     setXDomain([min, max])
+    
+    // Reset Y domains to full data range
+    const lossYBounds = getYDataBounds('loss', metrics)
+    setLossYDomain([lossYBounds.min, lossYBounds.max])
+    if (metrics.length > 0 && metrics[0].metric !== undefined) {
+      const metricYBounds = getYDataBounds('metric', metrics)
+      setMetricYDomain([metricYBounds.min, metricYBounds.max])
+    }
   }
 
   useEffect(() => {
@@ -170,6 +320,9 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
     socket.on('connect', () => {
       setConnectionStatus("connected")
       console.log("[TrainingVisualizer] Socket connected successfully")
+      
+      // No need to manually pause here - backend will handle paused state for early-stopped models
+      // and will send training_paused event if needed
     })
 
     socket.on('training_metrics', (data: any) => {
@@ -223,6 +376,11 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
       console.log("[TrainingVisualizer] Training resumed:", data.model_id)
     })
 
+    socket.on('training_early_stopped', (data: any) => {
+      setIsEarlyStopping(true)
+      console.log("[TrainingVisualizer] Early stop acknowledged:", data.model_id)
+    })
+
     socket.on('training_error', (data: any) => {
       setError(data.message)
       setIsTraining(false)
@@ -250,6 +408,10 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
       if (socketRef.current) {
         socketRef.current.disconnect()
       }
+      if (momentumAnimationRef.current !== null) {
+        cancelAnimationFrame(momentumAnimationRef.current)
+      }
+      setIsEarlyStopping(false)
     }
   }, [modelId, isVisible])
 
@@ -273,7 +435,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
             )}
             <div className="flex-1">
               <p className="font-medium text-sm">
-                {isTraining ? (isPaused ? "Training paused..." : "Training in progress...") : error ? "Training failed" : "Training completed"}
+                {isTraining ? (isPaused ? "Training paused..." : isEarlyStopping ? "Stopping after current epoch..." : "Training in progress...") : error ? "Training failed" : "Training completed"}
               </p>
               {hasData && (
                 <p className="text-xs text-gray-600">
@@ -311,6 +473,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
                     }
                   }}
                   className="bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200"
+                  disabled={isEarlyStopping}
                 >
                   {isPaused ? "Resume" : "Pause"}
                 </Button>
@@ -318,24 +481,15 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    try {
-                      if (socketRef.current) {
-                        socketRef.current.disconnect()
-                      }
-                    } finally {
-                      // Reset all state
-                      setIsTraining(false)
-                      setIsPaused(false)
-                      setMetrics([])
-                      setError(null)
-                      setConnectionStatus("disconnected")
-                      // Call the parent's onCancel
-                      onCancel?.()
+                    if (socketRef.current && !isEarlyStopping) {
+                      setIsEarlyStopping(true)
+                      socketRef.current.emit('early_stop_training', { model_id: modelId })
                     }
                   }}
-                  className="bg-red-50 hover:bg-red-100 text-red-600 border-red-200"
+                  className="bg-orange-50 hover:bg-orange-100 text-orange-600 border-orange-200"
+                  disabled={isEarlyStopping}
                 >
-                  Cancel
+                  {isEarlyStopping ? "Stopping..." : "Early Stop"}
                 </Button>
               </>
             )}
@@ -382,7 +536,10 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
                       domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
                       label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
                     />
-                    <YAxis label={{ value: "Loss", angle: -90, position: "insideLeft" }} />
+                    <YAxis 
+                      label={{ value: "Loss", angle: -90, position: "insideLeft" }}
+                      domain={lossYDomain ? [lossYDomain[0], lossYDomain[1]] : ['auto', 'auto']}
+                    />
                     <Tooltip formatter={(value) => value.toString()} />
                     <Legend />
                     <Line
@@ -439,7 +596,10 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
                         domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
                         label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
                       />
-                      <YAxis label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "insideLeft" }} />
+                      <YAxis 
+                        label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "insideLeft" }}
+                        domain={metricYDomain ? [metricYDomain[0], metricYDomain[1]] : ['auto', 'auto']}
+                      />
                       <Tooltip formatter={(value) => isRegression ? value.toString() : `${(Number(value) * 100).toFixed(2)}%`} />
                       <Legend />
                       <Line
