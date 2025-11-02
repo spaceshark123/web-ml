@@ -20,6 +20,7 @@ from sklearn.metrics import (
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.pipeline import Pipeline
+from sklearn.exceptions import NotFittedError
 import warnings
 from flask_socketio import SocketIO, emit
 import threading
@@ -30,6 +31,15 @@ app.config['SECRET_KEY'] = 'devsecret'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB max uploads
+
+# ===== SHAP performance knobs (tunable via environment) =====
+# Smaller background/eval samples and fewer nsamples make KernelExplainer much faster.
+# You can tweak these without code changes using environment variables.
+SHAP_BG_N = int(os.environ.get('SHAP_BG_N', '20'))        # default background sample size (was 80)
+SHAP_EVAL_N = int(os.environ.get('SHAP_EVAL_N', '60'))     # default eval sample size (was 120)
+SHAP_NSAMPLES = int(os.environ.get('SHAP_NSAMPLES', '40')) # default nsamples for KernelExplainer (was 80)
+SHAP_N_CHUNKS = int(os.environ.get('SHAP_N_CHUNKS', '20')) # progress chunks (UI smoothness)
+SHAP_USE_SAMPLING = os.environ.get('SHAP_USE_SAMPLING', '0') == '1'  # opt-in faster SamplingExplainer
 
 # Initialize DB
 db = SQLAlchemy(app)
@@ -929,14 +939,22 @@ def _get_proba_or_score(model, X):
     # Try predict_proba, else decision_function, else None
     try:
         proba = model.predict_proba(X)
-        # Return positive class probabilities for binary
-        if proba.ndim == 2 and proba.shape[1] >= 2:
+        print(f"[DEBUG] predict_proba returned shape: {proba.shape}, ndim: {proba.ndim}")
+        # For binary, return just positive class probabilities
+        if proba.ndim == 2 and proba.shape[1] == 2:
+            print(f"[DEBUG] Binary classification detected, returning column 1")
             return proba[:, 1]
+        # For multiclass, return all class probabilities
+        print(f"[DEBUG] Multiclass detected, returning full proba array")
         return proba
-    except Exception:
+    except Exception as e:
+        print(f"[DEBUG] predict_proba failed: {e}")
         try:
-            return model.decision_function(X)
-        except Exception:
+            df = model.decision_function(X)
+            print(f"[DEBUG] decision_function returned, shape: {df.shape if hasattr(df, 'shape') else 'scalar'}")
+            return df
+        except Exception as e2:
+            print(f"[DEBUG] decision_function also failed: {e2}")
             return None
 
 def _classification_metrics(wrapper: ModelWrapper, X_test, y_test):
@@ -951,25 +969,35 @@ def _classification_metrics(wrapper: ModelWrapper, X_test, y_test):
         metrics['f1'] = float(f1_score(y_test, preds, average='weighted', zero_division=0))
     # ROC-AUC and curves for binary classification if possible
     y_score = _get_proba_or_score(wrapper.model, X_test)
+    print(f"[DEBUG _classification_metrics] y_score is None: {y_score is None}")
+    if y_score is not None:
+        print(f"[DEBUG _classification_metrics] y_score shape: {y_score.shape if hasattr(y_score, 'shape') else 'scalar'}, ndim: {y_score.ndim if hasattr(y_score, 'ndim') else 'N/A'}")
     try:
         if y_score is not None:
             # If y_test has exactly 2 classes, compute ROC-AUC and curve
             unique = np.unique(y_test)
+            print(f"[DEBUG _classification_metrics] unique classes in y_test: {unique}, count: {unique.shape[0]}")
             if unique.shape[0] == 2:
+                print(f"[DEBUG _classification_metrics] Binary classification - computing ROC curve")
                 # Convert y to {0,1}
                 y_bin = (y_test == unique.max()).astype(int)
                 fpr, tpr, _ = roc_curve(y_bin, y_score)
                 metrics['roc_auc'] = float(roc_auc_score(y_bin, y_score))
                 metrics['roc_curve'] = [{'fpr': float(f), 'tpr': float(t)} for f, t in zip(fpr, tpr)]
+                print(f"[DEBUG _classification_metrics] ROC curve computed with {len(metrics['roc_curve'])} points, AUC: {metrics['roc_auc']}")
                 # PR curve and AUC
                 prec, rec, _ = precision_recall_curve(y_bin, y_score)
                 pr_points = [{'precision': float(p), 'recall': float(r)} for p, r in zip(prec, rec)]
                 metrics['pr_curve'] = pr_points
                 metrics['pr_auc'] = float(average_precision_score(y_bin, y_score))
+                print(f"[DEBUG _classification_metrics] PR curve computed with {len(pr_points)} points, AUC: {metrics['pr_auc']}")
             else:
+                print(f"[DEBUG _classification_metrics] Multiclass classification - computing ROC AUC only")
                 # multiclass ROC-AUC (no curve)
                 metrics['roc_auc'] = float(roc_auc_score(y_test, y_score, multi_class='ovr'))
-    except Exception:
+                print(f"[DEBUG _classification_metrics] Multiclass ROC AUC: {metrics['roc_auc']}")
+    except Exception as e:
+        print(f"[DEBUG _classification_metrics] Exception during ROC computation: {e}")
         pass
     return metrics
 
@@ -1118,6 +1146,21 @@ def model_experiments(model_id):
         wrapper = ModelWrapper.from_db_record(m)
         ds, X, y, X_train, X_test, y_train, y_test = _load_dataset_for_model(m)
 
+        # Guard: model not trained / missing
+        if wrapper.model is None:
+            return jsonify({'error': "Model doesn't exist or has not trained"}), 400
+        # Quick sanity check: try a tiny predict to catch NotFittedError early
+        try:
+            sample_X = X_test.iloc[:1] if len(X_test) > 0 else (X_train.iloc[:1] if len(X_train) > 0 else None)
+            if sample_X is not None and len(sample_X) > 0:
+                _ = wrapper.predict(sample_X)
+        except NotFittedError:
+            return jsonify({'error': "Model doesn't exist or has not trained"}), 400
+        except ValueError as e:
+            if 'No model loaded' in str(e):
+                return jsonify({'error': "Model doesn't exist or has not trained"}), 400
+            # else, allow other ValueErrors to be handled by existing logic later
+
         result = {
             'model_id': m.id,
             'model_name': m.name,
@@ -1192,21 +1235,30 @@ def model_experiments(model_id):
                 # Attempt to get score/probabilities
                 y_score = _get_proba_or_score(wrapper.model, X_test)
                 unique = np.unique(y_test)
+                print(f"[DEBUG multiclass ROC] y_score is None: {y_score is None}, unique classes: {unique.shape[0]}")
+                if y_score is not None:
+                    print(f"[DEBUG multiclass ROC] y_score shape: {y_score.shape if hasattr(y_score, 'shape') else 'scalar'}, ndim: {y_score.ndim if hasattr(y_score, 'ndim') else 'N/A'}")
                 if y_score is not None and unique.shape[0] > 2:
+                    print(f"[DEBUG multiclass ROC] Proceeding with multiclass ROC curves (>2 classes)")
                     # ensure 2D scores: shape (n_samples, n_classes)
                     scores = y_score
                     if scores.ndim == 1:
+                        print(f"[DEBUG multiclass ROC] scores is 1D, cannot plot multiclass ROC")
                         # cannot plot multiclass ROC with 1D score
                         scores = None
                     if scores is not None:
+                        print(f"[DEBUG multiclass ROC] scores is 2D with shape {scores.shape}")
                         try:
                             # Try classes_ from the model/pipeline, else fallback to sorted unique labels
                             classes = getattr(wrapper.model, 'classes_', None)
                             if classes is None:
                                 classes = sorted(list(unique))
+                            print(f"[DEBUG multiclass ROC] classes: {classes}")
                             # Binarize labels per class and compute curve
                             roc_curves_ovr = []
                             roc_auc_ovr = []
+                            pr_curves_ovr = []
+                            pr_auc_ovr = []
                             # Map class label order to score columns if possible
                             # If classes is an array, assume scores columns align to that order
                             for idx, cls in enumerate(classes):
@@ -1225,14 +1277,32 @@ def model_experiments(model_id):
                                         'curve': [{'fpr': float(f), 'tpr': float(t)} for f, t in zip(fpr, tpr)]
                                     })
                                     roc_auc_ovr.append({'class_label': str(cls), 'auc': float(roc_auc_score(y_bin, s))})
-                                except Exception:
+                                    # PR curve (OvR)
+                                    prec, rec, _ = precision_recall_curve(y_bin, s)
+                                    pr_curves_ovr.append({
+                                        'class_label': str(cls),
+                                        'curve': [{'recall': float(r), 'precision': float(p)} for p, r in zip(prec, rec)]
+                                    })
+                                    pr_auc_ovr.append({'class_label': str(cls), 'ap': float(average_precision_score(y_bin, s))})
+                                    print(f"[DEBUG multiclass ROC] Class {cls} ROC curve computed with {len(roc_curves_ovr[-1]['curve'])} points")
+                                except Exception as e:
+                                    print(f"[DEBUG multiclass ROC] Failed to compute ROC for class {cls}: {e}")
                                     continue
                             if roc_curves_ovr:
                                 result['metrics']['roc_curves_ovr'] = roc_curves_ovr
                                 result['metrics']['roc_auc_ovr'] = roc_auc_ovr
-                        except Exception:
+                                result['metrics']['pr_curves_ovr'] = pr_curves_ovr
+                                result['metrics']['pr_auc_ovr'] = pr_auc_ovr
+                                print(f"[DEBUG multiclass ROC] Added {len(roc_curves_ovr)} ROC curves to result")
+                            else:
+                                print(f"[DEBUG multiclass ROC] No ROC curves computed")
+                        except Exception as e:
+                            print(f"[DEBUG multiclass ROC] Exception in inner try: {e}")
                             pass
-            except Exception:
+                else:
+                    print(f"[DEBUG multiclass ROC] Skipping multiclass ROC (not >2 classes or y_score is None)")
+            except Exception as e:
+                print(f"[DEBUG multiclass ROC] Exception in outer try: {e}")
                 pass
 
         # SHAP: optionally compute asynchronously so the response is fast and UI can render while SHAP is computed
@@ -1256,8 +1326,8 @@ def model_experiments(model_id):
                                 shap_jobs[key]['progress'] = 5
 
                         # samples
-                        bg_sample = X_train.sample(min(80, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
-                        eval_sample = X_test.sample(min(120, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
+                        bg_sample = X_train.sample(min(SHAP_BG_N, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
+                        eval_sample = X_test.sample(min(SHAP_EVAL_N, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
                         model = wrapper.model
                         feature_names = list(bg_sample.columns)
 
@@ -1279,13 +1349,14 @@ def model_experiments(model_id):
                         else:
                             f = lambda Xk: model.predict(to_df(Xk))
 
-                        explainer = shap.KernelExplainer(f, bg_sample)
+                        # Choose explainer: optional faster SamplingExplainer, else KernelExplainer
+                        explainer = shap.SamplingExplainer(f, bg_sample) if SHAP_USE_SAMPLING else shap.KernelExplainer(f, bg_sample)
                         with shap_jobs_lock:
                             if key in shap_jobs:
                                     shap_jobs[key]['progress'] = 10
 
                         # compute in smaller chunks to provide smoother progress updates
-                        n_chunks = 20
+                        n_chunks = SHAP_N_CHUNKS
                         chunks = np.array_split(np.arange(len(eval_sample)), n_chunks) if len(eval_sample) > 0 else []
                         mean_abs_accum = np.zeros(len(eval_sample.columns)) if len(eval_sample.columns) > 0 else None
                         total_samples = 0
@@ -1293,7 +1364,7 @@ def model_experiments(model_id):
                             if len(idxs) == 0:
                                 continue
                             part = eval_sample.iloc[idxs]
-                            shap_vals = explainer.shap_values(part, nsamples=80)
+                            shap_vals = explainer.shap_values(part, nsamples=SHAP_NSAMPLES)
                             
                             # Handle multi-class (list of arrays) vs binary/regression (single array)
                             if isinstance(shap_vals, list):
@@ -1370,8 +1441,8 @@ def model_experiments(model_id):
             try:
                 import shap  # type: ignore
                 import pandas as pd  # ensure we can construct DataFrames inside SHAP wrapper
-                bg_sample = X_train.sample(min(80, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
-                eval_sample = X_test.sample(min(120, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
+                bg_sample = X_train.sample(min(SHAP_BG_N, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
+                eval_sample = X_test.sample(min(SHAP_EVAL_N, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
                 model = wrapper.model
                 feature_names = list(bg_sample.columns)
                 def to_df(Xk):
@@ -1390,8 +1461,9 @@ def model_experiments(model_id):
                     f = lambda Xk: model.predict_proba(to_df(Xk))
                 else:
                     f = lambda Xk: model.predict(to_df(Xk))
-                explainer = shap.KernelExplainer(f, bg_sample)
-                shap_vals = explainer.shap_values(eval_sample, nsamples=80)
+                # Choose explainer: optional faster SamplingExplainer, else KernelExplainer
+                explainer = shap.SamplingExplainer(f, bg_sample) if SHAP_USE_SAMPLING else shap.KernelExplainer(f, bg_sample)
+                shap_vals = explainer.shap_values(eval_sample, nsamples=SHAP_NSAMPLES)
                 
                 # Handle multi-class (list of arrays) vs binary/regression (single array)
                 if isinstance(shap_vals, list):

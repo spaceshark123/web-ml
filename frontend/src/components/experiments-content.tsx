@@ -29,6 +29,99 @@ interface ExperimentsResponse {
 	shap?: { feature_importance: { feature: string; importance: number }[]; total_features?: number; error?: string }
 }
 
+// Custom tooltip for ROC curves was inlined at usage sites to avoid scope/runtime issues.
+
+// Custom tooltip for PR curves that shows all series at the cursor's Recall
+function PrTooltip({ active, payload, label }: any) {
+	if (!active || !payload || payload.length === 0) return null
+	const dataPoints = payload
+	const cursorRecall = typeof label === 'number' ? label : (dataPoints[0]?.payload?.recall ?? 0)
+	return (
+		<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
+			<div className="font-medium text-gray-700 mb-1">Recall: {Number(cursorRecall).toFixed(3)}</div>
+			{dataPoints.map((point: any, idx: number) => (
+				<div key={idx} className="flex items-center gap-2">
+					<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
+					<span className="text-gray-600">{point.name}:</span>
+					<span className="text-gray-900">Precision {Number(point.value).toFixed(3)}</span>
+				</div>
+			))}
+		</div>
+	)
+}
+
+// Helper function to merge multiclass ROC curves into a single dataset
+// This enables synchronized tooltips across all curves at the same FPR
+function mergeRocCurves(rocCurvesOvr: Array<{class_label: string; curve: Array<{fpr: number; tpr: number}>}>) {
+	// Collect all unique FPR values from all curves
+	const fprSet = new Set<number>()
+	rocCurvesOvr.forEach(cls => {
+		cls.curve.forEach(point => fprSet.add(point.fpr))
+	})
+	const sortedFprs = Array.from(fprSet).sort((a, b) => a - b)
+	
+	// For each unique FPR, interpolate TPR for each class
+	return sortedFprs.map(fpr => {
+		const point: any = { fpr }
+		rocCurvesOvr.forEach(cls => {
+			// Find or interpolate the TPR at this FPR
+			const curve = cls.curve
+			let tpr = 0
+			
+			// Find the two points that bracket this FPR
+			for (let i = 0; i < curve.length; i++) {
+				if (curve[i].fpr === fpr) {
+					tpr = curve[i].tpr
+					break
+				} else if (i > 0 && curve[i-1].fpr < fpr && curve[i].fpr > fpr) {
+					// Linear interpolation between two points
+					const t = (fpr - curve[i-1].fpr) / (curve[i].fpr - curve[i-1].fpr)
+					tpr = curve[i-1].tpr + t * (curve[i].tpr - curve[i-1].tpr)
+					break
+				} else if (i === curve.length - 1) {
+					// Use last point if beyond range
+					tpr = curve[i].tpr
+				}
+			}
+			
+			point[cls.class_label] = tpr
+		})
+		return point
+	})
+}
+
+// Helper to merge multiclass PR curves into a single dataset keyed by recall
+function mergePrCurves(prCurvesOvr: Array<{class_label: string; curve: Array<{recall: number; precision: number}>}>) {
+	const recallSet = new Set<number>()
+	prCurvesOvr.forEach(cls => {
+		cls.curve.forEach(pt => recallSet.add(pt.recall))
+	})
+	const sortedRecalls = Array.from(recallSet).sort((a, b) => a - b)
+
+	return sortedRecalls.map(recall => {
+		const point: any = { recall }
+		prCurvesOvr.forEach(cls => {
+			const curve = cls.curve
+			let prec = 0
+			for (let i = 0; i < curve.length; i++) {
+				if (curve[i].recall === recall) {
+					prec = curve[i].precision
+					break
+				} else if (i > 0 && curve[i-1].recall < recall && curve[i].recall > recall) {
+					const t = (recall - curve[i-1].recall) / (curve[i].recall - curve[i-1].recall)
+					prec = curve[i-1].precision + t * (curve[i].precision - curve[i-1].precision)
+					break
+				} else if (i === curve.length - 1) {
+					prec = curve[i].precision
+				}
+			}
+			point[cls.class_label] = prec
+		})
+		return point
+	})
+}
+
+
 export function ExperimentsContent() {
 	const [models, setModels] = useState<Model[]>([])
 	const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -104,7 +197,25 @@ export function ExperimentsContent() {
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json' },
 			})
+			if (!res.ok) {
+				// Handle untrained/missing model gracefully
+				try {
+					const err = await res.json()
+					if (err && err.error) {
+						// Use the specified alert message
+						window.alert("Error: Model doesn't exist or has not trained.")
+						setLoading(false)
+						return
+					}
+				} catch {}
+				window.alert("Error: Model doesn't exist or has not trained")
+				setLoading(false)
+				return
+			}
 			const data: ExperimentsResponse = await res.json()
+			console.log('Experiment data received:', data)
+			console.log('ROC curve data:', data.metrics?.roc_curve)
+			console.log('ROC curves OvR:', (data.metrics as any)?.roc_curves_ovr)
 			setExperimentData(data)
 			
 			// If SHAP is pending, start polling progress
@@ -295,6 +406,21 @@ export function ExperimentsContent() {
 																		</Card>
 																	)
 																))}
+																{/* If multiclass APs are present but aggregate pr_auc isn't, show macro AP */}
+																{experimentData.metrics['pr_auc'] === undefined && Array.isArray((experimentData.metrics as any).pr_auc_ovr) && (experimentData.metrics as any).pr_auc_ovr.length > 0 && (
+																	(() => {
+																		const aps = ((experimentData.metrics as any).pr_auc_ovr as Array<{class_label: string; ap: number}>).map(x => x.ap)
+																		const macro = aps.reduce((a,b)=>a+b,0) / aps.length
+																		return (
+																			<Card className="p-4">
+																				<CardTitle className="text-sm">PR AUC (Macro OvR)</CardTitle>
+																				<CardContent className="pt-2">
+																					<div className="text-2xl font-semibold">{macro.toFixed(3)}</div>
+																				</CardContent>
+																			</Card>
+																		)
+																	})()
+																)}
 															</div>
 														) : (
 															<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -313,7 +439,8 @@ export function ExperimentsContent() {
 
 														{/* Curves */}
 														<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-															{experimentData.metrics.roc_curve && (
+															{/* Binary ROC */}
+															{experimentData.metrics.roc_curve && Array.isArray(experimentData.metrics.roc_curve) && experimentData.metrics.roc_curve.length > 0 && (
 																<Card>
 																	<CardHeader>
 																		<CardTitle className="text-lg">ROC Curve</CardTitle>
@@ -325,13 +452,125 @@ export function ExperimentsContent() {
 																				<CartesianGrid strokeDasharray="3 3" />
 																				<XAxis dataKey="fpr" domain={[0,1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
 																				<YAxis domain={[0,1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
-																				<Tooltip />
+																				<Tooltip content={({ active, payload, label }: any) => {
+																					if (!active || !payload || payload.length === 0) return null
+																					const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
+																					if (dataPoints.length === 0) return null
+																					const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
+																					return (
+																						<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
+																							<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
+																							{dataPoints.map((point: any, idx: number) => (
+																								<div key={idx} className="flex items-center gap-2">
+																									<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
+																									<span className="text-gray-600">{point.name}:</span>
+																									<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
+																								</div>
+																							))}
+																						</div>
+																					)
+																				}} />
 																				<Legend />
-																				<Line type="monotone" dataKey="tpr" name="ROC" stroke="#2563eb" dot={false} strokeWidth={2} />
+																				{/* Baseline: random guessing diagonal */}
+																				<Line
+																					data={[{ fpr: 0, tpr: 0 }, { fpr: 1, tpr: 1 }]}
+																					type="linear"
+																					dataKey="tpr"
+																					stroke="#9ca3af"
+																					strokeDasharray="4 4"
+																					dot={false}
+																					name="Baseline"
+																					isAnimationActive={false}
+																				/>
+																				{/* ROC curve */}
+																				<Line
+																					type="monotone"
+																					dataKey="tpr"
+																					name="ROC"
+																					stroke="#2563eb"
+																					dot={false}
+																					strokeWidth={2}
+																					isAnimationActive={true}
+																					activeDot={true as any}
+																				/>
 																			</LineChart>
 																		</ResponsiveContainer>
 																	</CardContent>
 																</Card>
+															)}
+
+															{/* Multiclass ROC (OvR) overlay */}
+															{Array.isArray((experimentData.metrics as any).roc_curves_ovr) && (experimentData.metrics as any).roc_curves_ovr.length > 0 && (
+																(() => {
+																	const rocCurvesOvr = (experimentData.metrics as any).roc_curves_ovr as Array<{class_label: string; curve: any[]}>
+																	const mergedData = mergeRocCurves(rocCurvesOvr)
+																	const palette = ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#ea580c", "#0ea5e9", "#f59e0b", "#10b981"]
+																	
+																	return (
+																		<Card>
+																			<CardHeader>
+																				<CardTitle className="text-lg">ROC Curves (OvR)</CardTitle>
+																				<CardDescription>
+																					One-vs-Rest ROC curves for each class
+																				</CardDescription>
+																			</CardHeader>
+																			<CardContent>
+																				<ResponsiveContainer width="100%" height={300}>
+																					<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+																						<CartesianGrid strokeDasharray="3 3" />
+																						<XAxis dataKey="fpr" domain={[0,1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
+																						<YAxis domain={[0,1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
+																						<Tooltip content={({ active, payload, label }: any) => {
+																							if (!active || !payload || payload.length === 0) return null
+																							const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
+																							if (dataPoints.length === 0) return null
+																							const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
+																							return (
+																								<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
+																									<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
+																									{dataPoints.map((point: any, idx: number) => (
+																										<div key={idx} className="flex items-center gap-2">
+																											<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
+																											<span className="text-gray-600">{point.name}:</span>
+																											<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
+																										</div>
+																									))}
+																								</div>
+																							)
+																						}} />
+																						<Legend />
+																						{/* Baseline: random guessing (non-interactive) */}
+																						<Line
+																							dataKey="__baseline"
+																							data={mergedData.map(d => ({ ...d, __baseline: d.fpr }))}
+																							type="linear"
+																							stroke="#9ca3af"
+																							strokeDasharray="4 4"
+																							dot={false}
+																							name="Baseline"
+																							isAnimationActive={false}
+																							activeDot={false as any}
+																						/>
+																						{rocCurvesOvr.map((cls, idx) => {
+																							const color = palette[idx % palette.length]
+																							return (
+																								<Line
+																									key={`roc-${cls.class_label}`}
+																									type="monotone"
+																									dataKey={cls.class_label}
+																									name={cls.class_label}
+																									stroke={color}
+																									dot={false}
+																									strokeWidth={2}
+																								/>
+																							)
+																						})}
+																					</LineChart>
+																				</ResponsiveContainer>
+																			</CardContent>
+																		</Card>
+																	)
+																})()
 															)}
 
 															{experimentData.metrics.pr_curve && (
@@ -353,6 +592,64 @@ export function ExperimentsContent() {
 																		</ResponsiveContainer>
 																	</CardContent>
 																</Card>
+															)}
+
+															{/* Multiclass PR (OvR) overlay - moved up above Confusion Matrix */}
+															{Array.isArray((experimentData.metrics as any).pr_curves_ovr) && (experimentData.metrics as any).pr_curves_ovr.length > 0 && (
+																(() => {
+																	const prCurvesOvr = (experimentData.metrics as any).pr_curves_ovr as Array<{class_label: string; curve: any[]}>
+																	const mergedData = mergePrCurves(prCurvesOvr)
+																	const palette = ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#ea580c", "#0ea5e9", "#f59e0b", "#10b981"]
+																	return (
+																		<Card>
+																			<CardHeader>
+																				<CardTitle className="text-lg">Precision-Recall Curves (OvR)</CardTitle>
+																				<CardDescription>
+																					{(() => {
+																						const apList = ((experimentData.metrics as any).pr_auc_ovr || []) as Array<{class_label: string; ap: number}>
+																						if (Array.isArray(apList) && apList.length > 0) {
+																							const macro = apList.reduce((a, b) => a + (b.ap ?? 0), 0) / apList.length
+																							return (
+																								<div className="space-y-1">
+																									<div>Macro AP: {macro.toFixed(3)}</div>
+																									<div className="text-xs text-gray-600">
+																										APs: {apList.map((x) => `${x.class_label}=${(x.ap ?? 0).toFixed(3)}`).join(', ')}
+																									</div>
+																							</div>
+																						)
+																					}
+																					return 'One-vs-Rest PR curves for each class'
+																				})()}
+																			</CardDescription>
+																		</CardHeader>
+																		<CardContent>
+																			<ResponsiveContainer width="100%" height={300}>
+																				<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+																					<CartesianGrid strokeDasharray="3 3" />
+																					<XAxis dataKey="recall" domain={[0,1]} type="number" label={{ value: "Recall", position: "insideBottomRight", offset: -5 }} />
+																					<YAxis domain={[0,1]} label={{ value: "Precision", angle: -90, position: "insideLeft" }} />
+																					<Tooltip content={<PrTooltip />} />
+																					<Legend />
+																					{prCurvesOvr.map((cls, idx) => {
+																						const color = palette[idx % palette.length]
+																						return (
+																							<Line
+																								key={`pr-${cls.class_label}`}
+																								type="monotone"
+																								dataKey={cls.class_label}
+																								name={cls.class_label}
+																								stroke={color}
+																								dot={false}
+																								strokeWidth={2}
+																							/>
+																						)
+																					})}
+																				</LineChart>
+																			</ResponsiveContainer>
+																		</CardContent>
+																	</Card>
+																)
+																})()
 															)}
 														</div>
 
@@ -384,14 +681,15 @@ export function ExperimentsContent() {
 														</CardContent>
 												</Card>
 											)}
+
 											{experimentData.shap && experimentData.shap.feature_importance && experimentData.shap.feature_importance.length > 0 && !(experimentData as any)?.shap?.status && (
 														<Card>
 															<CardHeader>
 																	<CardTitle className="text-lg">Feature Importance (SHAP)</CardTitle>
-																	<CardDescription>Mean |SHAP| values (top {Math.min(20, experimentData.shap.feature_importance.length)})</CardDescription>
+																	<CardDescription>Mean |SHAP| values (top {Math.min(10, experimentData.shap.feature_importance.length)})</CardDescription>
 																</CardHeader>
 																<CardContent>
-																	<ResponsiveContainer width="100%" height={320}>
+																	<ResponsiveContainer width="100%" height={Math.min(10, experimentData.shap.feature_importance.length) * 30 + 60}>
 																		<BarChart data={[...experimentData.shap.feature_importance].slice(0,20).reverse()} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
 																			<CartesianGrid strokeDasharray="3 3" />
 																			<XAxis type="number" />
