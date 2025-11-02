@@ -1357,6 +1357,7 @@ def compare_two_models(model_id, other_id):
         imb = _class_imbalance_info(y_test) if not ds.regression else None
         if imb:
             prep['imbalance'] = imb
+        result_metrics['preprocessing'] = prep
         # CV (lightweight)
         cv = None
         try:
