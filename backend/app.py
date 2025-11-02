@@ -37,6 +37,9 @@ CORS(app,
 # Configure SocketIO
 socketio = SocketIO(app, cors_allowed_origins="http://localhost:5173", async_mode='threading')
 
+# Track training pause state per model
+training_paused = {}
+
 # Configure session
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production
@@ -162,29 +165,44 @@ class ModelWrapper:
         self.metrics = {}
         self.regression = regression
 
-    def train(self, X, y, progress_callback=None, **train_kwargs):
+    def train(self, X, y, progress_callback=None, pause_check=None, **train_kwargs):
         # X,y are pandas or numpy-like
-        if self.model is None:
+        
+        # For MLP: Always create a fresh model instance to avoid state pollution from previous training
+        if self.model_type == 'mlp':
+            self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
+        elif self.model is None:
             self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
 
         # For MLP with streaming support
         if self.model_type == 'mlp' and progress_callback:
             print(f"[MLP Training] Starting epoch-wise training with progress callback")
             
-            # Get max iterations from model params
-            max_iter = self.model.max_iter if hasattr(self.model, 'max_iter') else 200
-            print(f"[MLP Training] Max iterations: {max_iter}")
+            # Get max iterations from params (NOT from model which may have stale value)
+            max_iter = self.params.get('max_iter', 200)
+            print(f"[MLP Training] Max iterations from params: {max_iter}")
             
-            # Use warm_start to enable iterative training
+            # Enable warm_start and set max_iter to 1 for incremental training
             self.model.warm_start = True
-            self.model.max_iter = 1  # Train one epoch at a time
+            self.model.n_iter_no_change = max_iter  # Disable early stopping for streaming
             
-            # Track previous loss to detect convergence
+            # Track previous loss for convergence
             prev_loss = float('inf')
             tol = self.model.tol if hasattr(self.model, 'tol') else 1e-4
             
             for epoch in range(max_iter):
-                # Train for one iteration
+                # Check if training is paused
+                if pause_check and pause_check():
+                    print(f"[MLP Training] Training paused at epoch {epoch + 1}")
+                    import time
+                    while pause_check():
+                        time.sleep(0.5)
+                    print(f"[MLP Training] Training resumed at epoch {epoch + 1}")
+                
+                # Set max_iter to train one more epoch
+                self.model.max_iter = epoch + 1
+                
+                # Train (with warm_start, this continues from previous state)
                 self.model.fit(X, y)
                 
                 # Calculate metrics for this epoch
@@ -197,22 +215,20 @@ class ModelWrapper:
 
                 print(f"[MLP Training] Epoch {epoch + 1}/{max_iter} - Loss: {train_loss:.6f}, {'MSE' if self.regression else 'Accuracy'}: {train_metric:.4f}")
 
-                # Send progress update
+                # Send progress update with regression flag
                 progress_callback({
                     'epoch': epoch + 1,
                     'loss': float(train_loss),
-                    'metric': float(train_metric)
+                    'metric': float(train_metric),
+                    'regression': self.regression
                 })
                 
                 # Check for convergence (loss not improving)
-                if abs(prev_loss - train_loss) < tol:
+                if epoch > 0 and abs(prev_loss - train_loss) < tol:
                     print(f"[MLP Training] Converged at epoch {epoch + 1}")
                     break
                 
                 prev_loss = train_loss
-                
-                # Increment max_iter for next iteration
-                self.model.max_iter += 1
             
             print(f"[MLP Training] Training completed")
         else:
@@ -1114,6 +1130,9 @@ def handle_training(data):
             emit('training_error', {'message': 'model_id is required'})
             return
         
+        # Initialize pause state for this model
+        training_paused[model_id] = False
+        
         print(f"[WebSocket] Starting training for model_id: {model_id}")
         
         # Verify user is authenticated (SocketIO session)
@@ -1171,18 +1190,23 @@ def handle_training(data):
         
         # Define progress callback
         def progress_callback(metrics):
-            print(f"[WebSocket] Emitting metrics: epoch={metrics['epoch']}, loss={metrics['loss']:.6f}, acc={metrics.get('accuracy', 0):.4f}")
+            print(f"[WebSocket] Emitting metrics: epoch={metrics['epoch']}, loss={metrics['loss']:.6f}, metric={metrics.get('metric', 0):.4f}")
             socketio.emit('training_metrics', {
                 'type': 'metrics',
                 'epoch': metrics['epoch'],
                 'loss': metrics['loss'],
-                'accuracy': metrics.get('accuracy')
+                'metric': metrics.get('metric'),
+                'regression': metrics.get('regression', False)
             })
+        
+        # Define pause check function
+        def pause_check():
+            return training_paused.get(model_id, False)
         
         print("[WebSocket] Starting model training...")
         # Train with streaming
         wrapper = ModelWrapper.from_db_record(m_entry)
-        wrapper.train(X_train, y_train, progress_callback=progress_callback)
+        wrapper.train(X_train, y_train, progress_callback=progress_callback, pause_check=pause_check)
         
         print("[WebSocket] Training complete, evaluating...")
         # Evaluate and save
@@ -1194,7 +1218,7 @@ def handle_training(data):
         db.session.commit()
         
         print(f"[WebSocket] Emitting training_complete with metrics: {final_metrics}")
-        emit('training_complete', {
+        socketio.emit('training_complete', {
             'type': 'complete',
             'message': 'Training completed successfully',
             'metrics': final_metrics
@@ -1204,10 +1228,32 @@ def handle_training(data):
         import traceback
         print(f"[WebSocket] Exception occurred:")
         traceback.print_exc()
-        emit('training_error', {
+        socketio.emit('training_error', {
             'type': 'error',
             'message': f'Training failed: {str(e)}'
         })
+    finally:
+        # Clean up pause state
+        if model_id in training_paused:
+            del training_paused[model_id]
+
+@socketio.on('pause_training')
+def handle_pause(data):
+    """Pause training for a specific model"""
+    model_id = data.get('model_id')
+    if model_id:
+        training_paused[model_id] = True
+        emit('training_paused', {'model_id': model_id})
+        print(f"[WebSocket] Training paused for model {model_id}")
+
+@socketio.on('resume_training')
+def handle_resume(data):
+    """Resume training for a specific model"""
+    model_id = data.get('model_id')
+    if model_id:
+        training_paused[model_id] = False
+        emit('training_resumed', {'model_id': model_id})
+        print(f"[WebSocket] Training resumed for model {model_id}")
 
 @app.route('/api/models/<int:model_id>/predict', methods=['POST'])
 @login_required

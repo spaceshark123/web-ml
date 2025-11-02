@@ -1,4 +1,4 @@
-import { use, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
 	Dialog,
@@ -128,7 +128,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				console.log('[TrainDialog] Training complete:', data)
 				setIsTraining(false)
 				socket.disconnect()
-				onTrainSuccess?.()
+				//onTrainSuccess?.()
 			})
 			
 			socket.on('training_error', (data: any) => {
@@ -187,7 +187,6 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			setOpen(false)
 
 			// success
-			onTrainSuccess?.()
 		} catch (error) {
 			setError("Failed to start training. Please try again.")
 			setIsTraining(false)
@@ -238,12 +237,30 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 		}
 	}, [open, modelIdInput])
 
+	// Handle dialog close - reset state
+	const handleOpenChange = (newOpen: boolean) => {
+		setOpen(newOpen)
+		
+		// Reset state when closing dialog
+		if (!newOpen) {
+			setShowVisualizer(false)
+			setIsTraining(false)
+			setError("")
+		}
+	}
+
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button className="bg-green-600 hover:bg-green-700 text-white">{text ? text : "Train Model"}</Button>
 			</DialogTrigger>
-			<DialogContent className={model.model_type === 'mlp' && showVisualizer ? "max-w-4xl" : model.model_type === 'mlp' ? "max-w-2xl" : ""}>
+			<DialogContent className={
+				model.model_type === 'mlp' && showVisualizer 
+					? "max-w-[98vw] w-[98vw] max-h-[92vh] overflow-y-auto"
+					: model.model_type === 'mlp' 
+						? "max-w-4xl"
+						: ""
+			}>
 				<DialogHeader>
 					<DialogTitle>Train {model.name}</DialogTitle>
 					<DialogDescription>
@@ -257,7 +274,18 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				
 				{showVisualizer && model.model_type === 'mlp' ? (
 					<div className="py-4">
-						<TrainingVisualizer modelId={model.id} isVisible={showVisualizer} regression={regression} />
+						<TrainingVisualizer 
+							modelId={model.id} 
+							isVisible={showVisualizer} 
+							regression={regression}
+							onCancel={() => {
+								setIsTraining(false)
+								setShowVisualizer(false)
+							}}
+							onComplete={() => {
+								setIsTraining(false)
+							}}
+						/>
 					</div>
 				) : (
 					<div className="space-y-4 py-4">
@@ -369,20 +397,35 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				)}
 				
 				<div className="flex justify-end gap-3">
-					<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => {
-						setOpen(false)
-						setShowVisualizer(false)
-					}}>
-						{isTraining ? "Close" : "Cancel"}
-					</Button>
-					{!showVisualizer && (
-						<Button
-							className="bg-blue-600 hover:bg-blue-700 text-white"
-							onClick={handleTrain}
-							disabled={model.id === -1 || isTraining}
-						>
-							{isTraining ? "Training..." : "Train"}
-						</Button>
+					{showVisualizer ? (
+						!isTraining && (
+							<Button 
+								className="bg-green-600 hover:bg-green-700 text-white"
+								onClick={() => {
+									setOpen(false)
+									setShowVisualizer(false)
+									onTrainSuccess?.()
+								}}
+							>
+								Done
+							</Button>
+						)
+					) : (
+						<>
+							<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => {
+								setOpen(false)
+								setShowVisualizer(false)
+							}}>
+								Cancel
+							</Button>
+							<Button
+								className="bg-blue-600 hover:bg-blue-700 text-white"
+								onClick={handleTrain}
+								disabled={model.id === -1 || isTraining}
+							>
+								{isTraining ? "Training..." : "Train"}
+							</Button>
+						</>
 					)}
 				</div>
 			</DialogContent>
