@@ -87,6 +87,7 @@ export function CompareModels() {
       if (response.ok) {
         const data = await response.json()
         setComparisonData(data)
+        fetchModels()  // Refresh models list to get updated metrics
       }
     } catch (error) {
       console.error("Failed to compare models:", error)
@@ -98,6 +99,7 @@ export function CompareModels() {
   const sortedModels = [...models].sort((a, b) => {
     const aVal = a.metrics[sortBy] ?? 0
     const bVal = b.metrics[sortBy] ?? 0
+    console.log(a.metrics, b.metrics)
     const result = aVal > bVal ? 1 : -1
     return sortOrder === "asc" ? result : -result
   })
@@ -485,7 +487,7 @@ export function CompareModels() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" key={filteredModels.toLocaleString()}>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">
@@ -494,6 +496,7 @@ export function CompareModels() {
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Accuracy</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">F1 Score</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">ROC-AUC</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">MSE</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">R² Score</th>
                 </tr>
               </thead>
@@ -515,6 +518,9 @@ export function CompareModels() {
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-600">
                       {model.metrics.roc_auc !== undefined ? model.metrics.roc_auc.toFixed(4) : "N/A"}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {model.metrics.mse !== undefined ? model.metrics.mse.toFixed(4) : "N/A"}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-600">
                       {model.metrics.r2 !== undefined ? model.metrics.r2.toFixed(4) : "N/A"}

@@ -1016,6 +1016,27 @@ def compare_two_models(model_id, other_id):
         'model1': build_result(m1, w1),
         'model2': build_result(m2, w2),
     }
+
+    if data['model1']['cv']:
+        existing_metrics = json.loads(m1.metrics) if m1.metrics else {}
+        # for any cv metric not already in stored metrics, add it
+        for k, v in data['model1']['cv'].items():
+            potential_key = k.replace('mean', '').replace('_', " ").strip()
+            if potential_key not in existing_metrics:
+                existing_metrics[potential_key] = v
+        m1.metrics = json.dumps(existing_metrics)
+        db.session.merge(m1)
+        db.session.commit()
+    if data['model2']['cv']:
+        existing_metrics = json.loads(m2.metrics) if m2.metrics else {}
+        for k, v in data['model2']['cv'].items():
+            potential_key = k.replace('mean', '').replace('_', " ").strip()
+            if potential_key not in existing_metrics:
+                existing_metrics[potential_key] = v
+        m2.metrics = json.dumps(existing_metrics)
+        db.session.merge(m2)
+        db.session.commit()
+        
     return jsonify(data)
 
 # create model from parameters

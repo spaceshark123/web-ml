@@ -50,12 +50,6 @@ export function Sidebar() {
           active={activePage === "/compare"}
           to="/compare"
         />
-        <NavItem
-          icon={<TrendingUp className="w-5 h-5" />}
-          label="Predictions"
-          active={activePage === "/predictions"}
-          to="/predictions"
-        />
       </nav>
 
       {/* User section */}
