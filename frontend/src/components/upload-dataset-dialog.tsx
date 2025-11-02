@@ -483,7 +483,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                       onValuesChange={(values) => setInputFeatures(values)}
                     >
                       <MultiSelectTrigger className="w-[99%] cursor-pointer max-w-full">
-                        <MultiSelectValue placeholder="Select input features" />
+                        <MultiSelectValue placeholder="Select input features" overflowBehavior="wrap-when-open"/>
                       </MultiSelectTrigger>
                       <MultiSelectContent className="bg-white">
                         <MultiSelectGroup>
