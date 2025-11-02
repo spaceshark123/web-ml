@@ -20,6 +20,8 @@ export interface Dataset {
 	input_features: string
 	target_feature: string
 	models: number
+	data_source?: string
+	license_info?: string
 	error?: string
 	description?: string
 	imbalance?: {
@@ -281,10 +283,13 @@ export function DatasetsContent() {
 										target_feature={dataset.target_feature || "N/A"}
 										features={dataset.features || 0}
 										models={dataset.models || 0}
+										data_source={dataset.data_source}
+										license_info={dataset.license_info}
 										imbalance={dataset.imbalance || undefined}
 										error={dataset.error}
 										onDelete={handleDelete}
 										onDownload={() => downloadDataset(dataset.id, dataset.name)}
+										onMetadataUpdate={fetchDatasets}
 									/>
 								);
 							})

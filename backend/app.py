@@ -81,6 +81,8 @@ class Dataset(db.Model):
     file_path = db.Column(db.String(200))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     description = db.Column(db.Text, nullable=True)
+    data_source = db.Column(db.Text, nullable=False)  # required: where the data came from
+    license_info = db.Column(db.Text, nullable=False)  # required: license terms
     # NOTE: keep model fields in sync with the existing DB schema.
     # Historical schema uses `target_feature` and `train_test_split`.
     # Avoid adding `target_variable`/`split_percent` here unless you run a DB migration.
@@ -679,6 +681,8 @@ def upload():
         regression = request.form.get('regression', 'false').lower() == 'true'
         input_features = request.form.get('input_features')
         target_feature = request.form.get('target_feature')
+        data_source = request.form.get('data_source')
+        license_info = request.form.get('license_info')
         
         print(f"Received file: {file.filename if file else 'None'}")
         print(f"Custom name: {custom_name}")
@@ -694,6 +698,10 @@ def upload():
             return jsonify({'error': 'No file provided'}), 400
         if not custom_name:
             return jsonify({'error': 'No dataset name provided'}), 400
+        if not data_source or not data_source.strip():
+            return jsonify({'error': 'Data source is required'}), 400
+        if not license_info or not license_info.strip():
+            return jsonify({'error': 'License information is required'}), 400
             
         # Get original file extension
         original_ext = os.path.splitext(file.filename)[1].lower()
@@ -719,7 +727,17 @@ def upload():
             
         try:
             # Save name with extension to ensure consistency when retrieving
-            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description, regression=regression, input_features=input_features, target_feature=target_feature)
+            ds = Dataset(
+                name=filename,
+                file_path=path,
+                user_id=current_user.id,
+                description=description,
+                data_source=data_source.strip(),
+                license_info=license_info.strip(),
+                regression=regression,
+                input_features=input_features,
+                target_feature=target_feature
+            )
             db.session.add(ds)
             db.session.commit()
         except Exception as e:
@@ -755,6 +773,8 @@ def upload():
                     'id': ds.id,
                     'name': filename,
                     'description': description,
+                        'data_source': data_source,
+                        'license_info': license_info,
                     'ext' : original_ext,
                     'file_path': path,
                     'file_size': file_size,
@@ -787,6 +807,8 @@ def upload():
                 'id': ds.id,
                 'name': filename,
                 'description': description,
+                'data_source': data_source,
+                'license_info': license_info,
                 'ext' : original_ext,
                 'file_path': path,
                 'file_size': file_size,
@@ -850,6 +872,8 @@ def get_datasets():
                     'id': ds.id,
                     'name': ds.name,
                     'description': ds.description,
+                    'data_source': getattr(ds, 'data_source', None),
+                    'license_info': getattr(ds, 'license_info', None),
                     'file_path': ds.file_path,
                     'upload_date': upload_date,
                     'file_size': 0,
@@ -962,7 +986,10 @@ def get_dataset(dataset_id):
         'input_features': ds.input_features,
         'target_feature': ds.target_feature,
         'train_test_split': ds.train_test_split,
-        'regression': ds.regression
+        'regression': ds.regression,
+        'description': ds.description,
+        'data_source': getattr(ds, 'data_source', None),
+        'license_info': getattr(ds, 'license_info', None)
     }
 
     return jsonify(dataset_info)
@@ -1030,7 +1057,7 @@ def save_dataset_config(dataset_id):
         return jsonify({'error': f'Failed to save configuration: {str(e)}'}), 500
 
 # Delete dataset (supports OPTIONS for CORS preflight)
-@app.route('/api/datasets/<int:dataset_id>', methods=['DELETE', 'OPTIONS', 'GET'])
+@app.route('/api/datasets/<int:dataset_id>', methods=['DELETE', 'OPTIONS', 'GET', 'PATCH'])
 def delete_dataset(dataset_id):
     # Allow CORS preflight through
     if request.method == 'OPTIONS':
@@ -1042,6 +1069,41 @@ def delete_dataset(dataset_id):
         if ds.user_id != current_user.id:
             return jsonify({'error': 'Forbidden'}), 403
         return jsonify({'name': ds.name}), 200
+
+    # PATCH request updates metadata (data_source and license_info)
+    if request.method == 'PATCH':
+        if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        try:
+            ds = Dataset.query.get_or_404(dataset_id)
+            if ds.user_id != current_user.id:
+                return jsonify({'error': 'Forbidden'}), 403
+            
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            data_source = data.get('data_source', '').strip()
+            license_info = data.get('license_info', '').strip()
+            
+            if not data_source:
+                return jsonify({'error': 'Data source is required'}), 400
+            if not license_info:
+                return jsonify({'error': 'License information is required'}), 400
+            
+            ds.data_source = data_source
+            ds.license_info = license_info
+            db.session.commit()
+            
+            return jsonify({
+                'msg': 'Metadata updated successfully',
+                'data_source': ds.data_source,
+                'license_info': ds.license_info
+            }), 200
+        except Exception as e:
+            print(f"Error updating dataset metadata: {str(e)}")
+            return jsonify({'error': str(e)}), 500
 
     # Require authentication for actual DELETE
     if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
@@ -2374,6 +2436,27 @@ with app.app_context():
         # Only create tables if they don't exist
         db.create_all()
         print("Database tables created if they didn't exist")
+        # Best-effort migration: add data_source and license_info to dataset if missing
+        try:
+            with db.engine.connect() as conn:
+                # Add data_source
+                try:
+                    conn.execute(db.text('ALTER TABLE dataset ADD COLUMN data_source TEXT'))
+                    conn.commit()
+                    print("Migrated: added dataset.data_source column")
+                except Exception as e:
+                    # Column may already exist
+                    pass
+                # Add license_info
+                try:
+                    conn.execute(db.text('ALTER TABLE dataset ADD COLUMN license_info TEXT'))
+                    conn.commit()
+                    print("Migrated: added dataset.license_info column")
+                except Exception as e:
+                    # Column may already exist
+                    pass
+        except Exception as e:
+            print(f"Dataset metadata migration skipped/failed: {e}")
         
         # Create test user if it doesn't exist
         if not User.query.filter_by(email='test@example.com').first():
@@ -2436,6 +2519,26 @@ def migrate_add_current_epoch():
         return jsonify({'msg': 'Migration completed successfully - added current_epoch column'})
     except Exception as e:
         # Column might already exist
+        return jsonify({'msg': f'Migration note: {str(e)}'})
+
+@app.route('/api/migrate/add-dataset-metadata', methods=['POST'])
+def migrate_add_dataset_metadata():
+    key = request.args.get('key')
+    if key != 'supersecretresetkey':
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        with db.engine.connect() as conn:
+            try:
+                conn.execute(db.text('ALTER TABLE dataset ADD COLUMN data_source TEXT'))
+            except Exception as e:
+                pass
+            try:
+                conn.execute(db.text('ALTER TABLE dataset ADD COLUMN license_info TEXT'))
+            except Exception as e:
+                pass
+            conn.commit()
+        return jsonify({'msg': 'Migration completed successfully - added dataset metadata columns'})
+    except Exception as e:
         return jsonify({'msg': f'Migration note: {str(e)}'})
     
 

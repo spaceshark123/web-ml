@@ -30,6 +30,8 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
   const [file, setFile] = useState<File | null>(null)
   const [customName, setCustomName] = useState("")
   const [description, setDescription] = useState("")
+  const [dataSource, setDataSource] = useState("")
+  const [licenseInfo, setLicenseInfo] = useState("")
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState("")
   const [step, setStep] = useState<'select' | 'specify'>('select')
@@ -113,12 +115,26 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       return
     }
 
+    if (!dataSource.trim()) {
+      setError("Please provide a data source")
+      setUploading(false)
+      return
+    }
+
+    if (!licenseInfo.trim()) {
+      setError("Please provide license information")
+      setUploading(false)
+      return
+    }
+
     const formData = new FormData()
     formData.append("file", file)
     formData.append("name", customName.trim())
     if (description.trim()) {
       formData.append("description", description.trim())
     }
+    formData.append("data_source", dataSource.trim())
+    formData.append("license_info", licenseInfo.trim())
 
     try {
       const controller = new AbortController()
@@ -319,6 +335,8 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setFile(null)
       setCustomName('')
       setDescription('')
+  setDataSource('')
+  setLicenseInfo('')
       setColumns(null)
       setRegression(false)
       setInputFeatures(null)
@@ -359,6 +377,8 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setFile(null)
       setCustomName('')
       setDescription('')
+  setDataSource('')
+  setLicenseInfo('')
       setColumns(null)
       setRegression(false)
       setInputFeatures(null)
@@ -413,6 +433,26 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="Enter dataset description"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="datasetSource">Data Source *</Label>
+                    <Input
+                      id="datasetSource"
+                      value={dataSource}
+                      onChange={(e) => setDataSource(e.target.value)}
+                      placeholder="e.g., Kaggle URL, internal table, etc."
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="datasetLicense">License *</Label>
+                    <Input
+                      id="datasetLicense"
+                      value={licenseInfo}
+                      onChange={(e) => setLicenseInfo(e.target.value)}
+                      placeholder="e.g., CC BY 4.0, MIT, Proprietary"
+                      required
                     />
                   </div>
                   <p className="text-sm text-gray-500">

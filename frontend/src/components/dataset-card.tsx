@@ -1,4 +1,5 @@
 import { CreateModelDialog } from "./create-model-dialog"
+import { EditMetadataDialog } from "./edit-metadata-dialog"
 import { Button } from "./ui/button"
 import {
 	Card,
@@ -20,6 +21,8 @@ interface DatasetCardProps {
 	input_features: string[]
 	target_feature: string
 	models: number
+	data_source?: string
+	license_info?: string
 	error?: string
 	imbalance?: {
 		minority_class_percentage: number
@@ -28,9 +31,10 @@ interface DatasetCardProps {
 	}
 	onDelete?: () => void
 	onDownload?: () => void
+	onMetadataUpdate?: () => void
 }
 
-export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, regression, input_features, target_feature, features, models, error, imbalance, onDelete, onDownload }: DatasetCardProps) {
+export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, regression, input_features, target_feature, features, models, data_source, license_info, error, imbalance, onDelete, onDownload, onMetadataUpdate }: DatasetCardProps) {
 	return (
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
@@ -96,6 +100,28 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 					<div className="text-center">
 						<div className="text-2xl font-bold text-blue-600">{models}</div>
 						<div className="text-xs text-gray-500 uppercase tracking-wide">Models</div>
+					</div>
+				</div>
+
+				{/* Source and License */}
+				<div className="mt-4 mb-6 space-y-3">
+					<div className="flex items-start justify-between gap-2">
+						<div className="flex-1 min-w-0">
+							<div className="text-sm mb-2">
+								<span className="text-gray-600">Source:</span>
+								<span className="text-gray-900 ml-2 break-words whitespace-normal break-all">{data_source || '—'}</span>
+							</div>
+							<div className="text-sm">
+								<span className="text-gray-600">License:</span>
+								<span className="text-gray-900 ml-2 break-words whitespace-normal break-all">{license_info || '—'}</span>
+							</div>
+						</div>
+						<EditMetadataDialog
+							datasetId={id}
+							currentDataSource={data_source || ''}
+							currentLicenseInfo={license_info || ''}
+							onUpdateSuccess={onMetadataUpdate}
+						/>
 					</div>
 				</div>
 
