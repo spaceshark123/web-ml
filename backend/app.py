@@ -1502,6 +1502,36 @@ def dataset_experiments(dataset_id):
         corr_matrix = processed_df.corr()
         # for all nan values (e.g., no numeric features), fill with zeros
         corr_matrix = corr_matrix.fillna(0)
+        
+        data = []
+        data_cols = X.columns.tolist() + y.to_frame().columns.tolist()
+        for column in data_cols:
+            if pd.api.types.is_numeric_dtype(df[column]):
+                # numeric feature
+                col_data = df[column].dropna()
+                numeric_info = {
+                    'feature': column,
+                    'type': 'numeric',
+                    'min': float(col_data.min()) if not col_data.empty else None,
+                    'q1': float(col_data.quantile(0.25)) if not col_data.empty else None,
+                    'median': float(col_data.median()) if not col_data.empty else None,
+                    'q3': float(col_data.quantile(0.75)) if not col_data.empty else None,
+                    'max': float(col_data.max()) if not col_data.empty else None,
+                    'isTarget': column == ds.target_feature
+                }
+                data.append(numeric_info)
+            else:
+                # categorical feature
+                col_data = df[column].dropna()
+                value_counts = col_data.value_counts(normalize=True)
+                categorical_info = {
+                    'feature': column,
+                    'type': 'categorical',
+                    'categories': value_counts.index.astype(str).tolist(),
+                    'proportions': value_counts.values.tolist(),
+                    'isTarget': column == ds.target_feature
+                }
+                data.append(categorical_info)
 
         result = {
             'dataset_id': ds.id,
@@ -1517,7 +1547,8 @@ def dataset_experiments(dataset_id):
                 'feature_names': corr_matrix.columns.tolist(),
                 'target_feature_names': target_cols.tolist() if isinstance(target_cols, np.ndarray) else target_cols,
                 'matrix': corr_matrix.to_numpy().tolist()
-            }
+            },
+            'data': data
         }
 
         imb = _class_imbalance_info(y_test) if not ds.regression else None

@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { data, Link, useSearchParams } from "react-router-dom"
 import { API_BASE_URL } from "@/constants"
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, PieChart, Pie, Cell } from "recharts"
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, PieChart, Pie, Cell, LabelList } from "recharts"
 import { Label } from "@/components/ui/label"
 import type { Dataset } from "./datasets-content"
 import type { Model } from "./models-content"
@@ -30,6 +30,7 @@ interface ExperimentsResponse {
 		missing_values_removed: number
 		duplicates_removed: number
 	}
+	data?: FeatureSummary[]
 	correlation_matrix?: { feature_names: string[]; target_feature_names: string[]; matrix: number[][] }
 	confusion_matrix?: { labels: string[]; matrix: number[][] }
 	imbalance?: { minority_class_percentage: number; imbalance_ratio: number; is_imbalanced: boolean, class_distribution?: Record<string, number> }
@@ -183,7 +184,7 @@ function mergePrCurves(prCurvesOvr: Array<{ class_label: string; curve: Array<{ 
 	})
 }
 
-export default function ClassDistributionPie({ classDistribution }: { classDistribution: Record<string, number> }) {
+export function ClassDistributionPie({ classDistribution }: { classDistribution: Record<string, number> }) {
 	// Convert dict → array and compute percentages
 	const total = Object.values(classDistribution).reduce((a, b) => a + b, 0);
 	const data = Object.entries(classDistribution).map(([classLabel, count]) => ({
@@ -216,6 +217,129 @@ export default function ClassDistributionPie({ classDistribution }: { classDistr
 				labelFormatter={(label) => `Class: ${label}`}
 			/>
 		</PieChart>
+	);
+}
+
+// Props type
+type FeatureSummary =
+	| {
+		feature: string;
+		type: "numeric";
+		min: number;
+		q1: number;
+		median: number;
+		q3: number;
+		max: number;
+		isTarget?: boolean;
+	}
+	| {
+		feature: string;
+		type: "categorical";
+		categories: string[];
+		proportions: number[];
+		isTarget?: boolean;
+	};
+
+type Props = { data: FeatureSummary[]; width?: number; rowHeight?: number };
+
+const FeatureShape = ({ x, y, width, height, payload }: any) => {
+	if (payload.type === "numeric") {
+		const scale = (val: number) => ((val - payload.min) / (payload.max - payload.min)) * width;
+		const boxStart = scale(payload.q1);
+		const boxEnd = scale(payload.q3);
+		const median = scale(payload.median);
+		const min = scale(payload.min);
+		const max = scale(payload.max);
+
+		const centerY = y + height / 2;
+		const boxHeight = Math.max(6, height * 0.6); // don’t let it get too thin
+
+		return (
+			<g transform={`translate(${x},0)`}>
+				{/* Whiskers */}
+				<line x1={min} x2={boxStart} y1={centerY} y2={centerY} stroke="#999" strokeWidth={1} />
+				<line x1={boxEnd} x2={max} y1={centerY} y2={centerY} stroke="#999" strokeWidth={1} />
+				{/* Box */}
+				<rect
+					x={boxStart}
+					y={centerY - boxHeight / 2}
+					width={boxEnd - boxStart}
+					height={boxHeight}
+					fill={payload.isTarget ? "#BBF7D0" : "#ddd"}
+					stroke="#111"
+				/>
+				{/* Median */}
+				<line x1={median} x2={median} y1={centerY - boxHeight / 2} y2={centerY + boxHeight / 2} stroke="#111" strokeWidth={2} />
+			</g>
+		);
+	}
+
+	if (payload.type === "categorical") {
+		let start = 0;
+		const centerY = y + height / 2;
+		const barHeight = Math.max(6, height * 0.6);
+
+		return (
+			<g transform={`translate(${x},0)`}>
+				{payload.proportions.map((p: number, idx: number) => {
+					const segWidth = p * width;
+					const rect = (
+						<rect
+							key={idx}
+							x={start}
+							y={centerY - barHeight / 2}
+							width={segWidth}
+							height={barHeight}
+							fill={COLORS[idx % COLORS.length]}
+						/>
+					);
+					start += segWidth;
+					return rect;
+				})}
+				{payload.isTarget && (
+					<rect
+						x={0}
+						y={centerY - barHeight / 2}
+						width={width}
+						height={barHeight}
+						fill="none"
+						stroke="#22c55e"
+						strokeWidth={2}
+					/>
+				)}
+			</g>
+		);
+	}
+
+	return null;
+};
+
+export function MixedFeatureSummary({ data, rowHeight = 30 }: Props) {
+	return (
+		<ResponsiveContainer width="100%" height={data.length * rowHeight}>
+			<BarChart
+				layout="vertical"
+				data={data}
+				margin={{ left: 140, right: 20, top: 20, bottom: 20 }}
+				barGap={8}
+			>
+				<XAxis type="number" hide />
+				<YAxis type="category" dataKey="feature" width={140} />
+				<Tooltip
+					formatter={(value, name, props) => {
+						const d = props.payload;
+						if (d.type === "numeric") {
+							return `min: ${d.min}, q1: ${d.q1}, median: ${d.median}, q3: ${d.q3}, max: ${d.max}`;
+						} else {
+							return d.categories
+								.map((cat: string, i: number) => `${cat}: ${(d.proportions[i] * 100).toFixed(1)}%`)
+								.join(", ");
+						}
+					}}
+				/>
+				<Bar dataKey="feature" fill="#8884d8" shape={<FeatureShape x={140*2} width={610} />} />
+			</BarChart>
+		</ResponsiveContainer>
 	);
 }
 
@@ -983,7 +1107,7 @@ export function ExperimentsContent() {
 												</div>
 											</>
 										}
-										{experimentData.imbalance && (
+										{experimentData.type === 'classification' && experimentData.imbalance && (
 											<div className="mt-6 pt-6 border-t border-gray-200 bg-yellow-50 p-4 rounded">
 												<h4 className="font-medium text-gray-700 mb-2">Class Imbalance Detected</h4>
 												<div className="text-sm space-y-1">
@@ -1003,7 +1127,7 @@ export function ExperimentsContent() {
 											</div>
 										)}
 										{ /* Pie chart of class distribution */}
-										{experimentData.imbalance && (
+										{experimentData.type === 'classification' && experimentData.imbalance && (
 											<Card className="mt-6">
 												<CardHeader>
 													<CardTitle className="text-lg">Class Distribution</CardTitle>
@@ -1022,6 +1146,18 @@ export function ExperimentsContent() {
 												</CardHeader>
 												<CardContent>
 													<CorrelationMatrix labels={experimentData.correlation_matrix.feature_names} target_feature_names={experimentData.correlation_matrix.target_feature_names.flat()} matrix={experimentData.correlation_matrix.matrix} />
+												</CardContent>
+											</Card>
+										)}
+
+										{ /* feature distributions */}
+										{experimentData.data && (
+											<Card className="mt-6">
+												<CardHeader>
+													<CardTitle className="text-lg">Feature Distributions</CardTitle>
+												</CardHeader>
+												<CardContent>
+													<MixedFeatureSummary data={experimentData.data} rowHeight={60}/>
 												</CardContent>
 											</Card>
 										)}
@@ -1095,7 +1231,6 @@ function CorrelationMatrix({
 	const labelWidth = cellSize + 40;
 	const displayText = cellSize >= 25;
 	const targetSet = new Set(target_feature_names);
-	console.log("Target features for correlation matrix:", targetSet);
 	const [hoverInfo, setHoverInfo] = useState<{ i: number; j: number; val: number } | null>(null);
 
 	// Draw the heatmap
@@ -1175,7 +1310,6 @@ function CorrelationMatrix({
 					<div style={{ height: displayText ? Math.min(14, cellSize / 5 + 4) * 1.5 : 0 }}></div>
 					{labels.map((l, i) => {
 						const isTarget = target_feature_names.includes(l);
-						console.log("Checking feature for target highlight:", l, target_feature_names, isTarget);
 						return displayText ? (
 							<div
 								key={i}
@@ -1201,9 +1335,6 @@ function CorrelationMatrix({
 					<div className="flex">
 						{labels.map((l, i) => {
 							const isTarget = targetSet.has(l);
-							if (isTarget) {
-								console.log("Target feature in correlation matrix:", l);
-							}
 							return displayText ? (
 								<div
 									key={i}
