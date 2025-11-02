@@ -692,7 +692,6 @@ def get_dataset(dataset_id):
         'file_path': ds.file_path,
         'user_id': ds.user_id,
         'created_at': ds.created_at,
-        'updated_at': ds.updated_at,
         'input_features': ds.input_features,
         'target_feature': ds.target_feature,
         'train_test_split': ds.train_test_split,
