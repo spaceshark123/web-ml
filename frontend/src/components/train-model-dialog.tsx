@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Model } from "./models-content"
+import { TrainingVisualizer } from "./training-visualizer"
+import io from "socket.io-client"
 
 interface TrainModelDialogProps {
 	modelIdInput?: number
@@ -23,12 +25,98 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 	const [open, setOpen] = useState(false)
 	const [model, setModel] = useState({ id: -1, name: "Model not found", created_at: "", model_type: "linear_regression", dataset_id: -1, metrics: {} } as Model)
 	const [error, setError] = useState("")
+	const [isTraining, setIsTraining] = useState(false)
+	const [showVisualizer, setShowVisualizer] = useState(false)
+
+	// MLP hyperparameters with defaults
+	const [hiddenLayers, setHiddenLayers] = useState("100")
+	const [activation, setActivation] = useState("relu")
+	const [solver, setSolver] = useState("adam")
+	const [maxIter, setMaxIter] = useState("200")
+	const [learningRate, setLearningRate] = useState("0.001")
+	const [alpha, setAlpha] = useState("0.0001")
 
 	// hyperparameters state
 	const [hyperparameters, setHyperparameters] = useState<Record<string, any>>({})
 
 	const handleTrain = async () => {
 		setError("")
+		setIsTraining(true)
+		
+		// For MLP, use WebSocket streaming
+		if (model.model_type === 'mlp') {
+			// First update model params with MLP configuration
+			try {
+				// Parse hidden layers (comma-separated numbers to tuple)
+				const hiddenLayerSizes = hiddenLayers.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+				
+				const mlpParams = {
+					hidden_layer_sizes: hiddenLayerSizes,
+					activation: activation,
+					solver: solver,
+					max_iter: parseInt(maxIter),
+					learning_rate_init: parseFloat(learningRate),
+					alpha: parseFloat(alpha)
+				}
+				
+				// Update model params via PUT request
+				const updateResponse = await fetch(`http://localhost:5000/api/models/${model.id}`, {
+					method: "PUT",
+					credentials: "include",
+					headers: {
+						"Accept": "application/json",
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ params: mlpParams })
+				})
+				
+				if (!updateResponse.ok) {
+					throw new Error("Failed to update model parameters")
+				}
+				
+				console.log("Updated MLP parameters:", mlpParams)
+			} catch (err) {
+				setError("Failed to configure MLP parameters")
+				setIsTraining(false)
+				return
+			}
+			
+			setShowVisualizer(true)
+			
+			console.log("[TrainDialog] Creating WebSocket connection for MLP training")
+			const socket = io("http://localhost:5000", {
+				transports: ['websocket', 'polling']
+			})
+			
+			socket.on('connect', () => {
+				console.log('[TrainDialog] Socket connected, emitting start_training event')
+				socket.emit('start_training', { model_id: model.id })
+			})
+			
+			socket.on('training_complete', (data: any) => {
+				console.log('[TrainDialog] Training complete:', data)
+				setIsTraining(false)
+				socket.disconnect()
+				onTrainSuccess?.()
+			})
+			
+			socket.on('training_error', (data: any) => {
+				console.error('[TrainDialog] Training error:', data)
+				setError(data.message || 'Training failed')
+				setIsTraining(false)
+				socket.disconnect()
+			})
+			
+			socket.on('connect_error', (err: any) => {
+				console.error('[TrainDialog] Socket connection error:', err)
+				setError('Failed to connect to training stream')
+				setIsTraining(false)
+			})
+			
+			return
+		}
+		
+		// For other models, use regular POST
 		try {
 			const body: Record<string, any> = {}
 			if (Object.keys(hyperparameters).length > 0) {
@@ -47,26 +135,31 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				if (response.status === 400) {
 					const data = await response.json()
 					setError(data.error || "Invalid hyperparameters")
+					setIsTraining(false)
 					return
 				} else {
 					setError(`Server error: ${response.status}`)
+					setIsTraining(false)
 					return
 				}
 			}
 			const data = await response.json()
 			if (data.error) {
 				setError(data.error)
+				setIsTraining(false)
 				return
 			}
 			// log
 			console.log("Train " + model.name + " response:", data)
-			alert("Training started successfully!")
+			alert("Training completed successfully!")
+			setIsTraining(false)
 			setOpen(false)
 
 			// success
 			onTrainSuccess?.()
 		} catch (error) {
 			setError("Failed to start training. Please try again.")
+			setIsTraining(false)
 			return
 		}
 	}
@@ -89,6 +182,20 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				return
 			}
 			setModel(data)
+			
+			// Load existing params if available for MLP
+			if (data.model_type === 'mlp' && data.params) {
+				if (data.params.hidden_layer_sizes) {
+					setHiddenLayers(Array.isArray(data.params.hidden_layer_sizes) 
+						? data.params.hidden_layer_sizes.join(',') 
+						: String(data.params.hidden_layer_sizes))
+				}
+				if (data.params.activation) setActivation(data.params.activation)
+				if (data.params.solver) setSolver(data.params.solver)
+				if (data.params.max_iter) setMaxIter(String(data.params.max_iter))
+				if (data.params.learning_rate_init) setLearningRate(String(data.params.learning_rate_init))
+				if (data.params.alpha) setAlpha(String(data.params.alpha))
+			}
 		} catch {
 			console.log("Failed to fetch model")
 		}
@@ -105,59 +212,147 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			<DialogTrigger asChild>
 				<Button className="bg-green-600 hover:bg-green-700 text-white">{text ? text : "Train Model"}</Button>
 			</DialogTrigger>
-			<DialogContent>
+			<DialogContent className={model.model_type === 'mlp' && showVisualizer ? "max-w-4xl" : model.model_type === 'mlp' ? "max-w-2xl" : ""}>
 				<DialogHeader>
 					<DialogTitle>Train {model.name}</DialogTitle>
 					<DialogDescription>
-						Enter the hyperparameters below to train the model.
+						{model.model_type === 'mlp' 
+							? showVisualizer 
+								? "Neural network training with real-time progress visualization"
+								: "Configure neural network hyperparameters before training"
+							: "Enter the hyperparameters below to train the model."}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-4 py-4">
-					{model.model_type === "linear_regression" && (
-						// no hyperparameters for linear regression
-						<p className="text-sm text-gray-600">No hyperparameters to set for Linear Regression.</p>
-					)}
-					{model.model_type === "logistic_regression" && (
-						// no hyperparameters for logistic regression
-						<p className="text-sm text-gray-600">No hyperparameters to set for Logistic Regression.</p>
-					)}
-					{model.model_type === "decision_tree" && (
-						// no hyperparameters for decision tree
-						<p className="text-sm text-gray-600">No hyperparameters to set for Decision Tree.</p>
-					)}
-					{model.model_type === "random_forest" && (
-						// no hyperparameters for random forest
-						<p className="text-sm text-gray-600">No hyperparameters to set for Random Forest.</p>
-					)}
-					{model.model_type === "bagging" && (
-						// no hyperparameters for bagging
-						<p className="text-sm text-gray-600">No hyperparameters to set for Bagging.</p>
-					)}
-					{model.model_type === "boosting" && (
-						// no hyperparameters for boosting
-						<p className="text-sm text-gray-600">No hyperparameters to set for Boosting.</p>
-					)}
-					{model.model_type === "svm" && (
-						// no hyperparameters for SVM
-						<p className="text-sm text-gray-600">No hyperparameters to set for SVM.</p>
-					)}
-					{model.model_type === "mlp" && (
-						// no hyperparameters for MLP
-						<p className="text-sm text-gray-600">No hyperparameters to set for MLP.</p>
-					)}
-					{error && <p className="text-sm text-red-500">{error}</p>}
-				</div>
+				
+				{showVisualizer && model.model_type === 'mlp' ? (
+					<div className="py-4">
+						<TrainingVisualizer modelId={model.id} isVisible={showVisualizer} />
+					</div>
+				) : (
+					<div className="space-y-4 py-4">
+						{model.model_type === "linear_regression" && (
+							<p className="text-sm text-gray-600">No hyperparameters to set for Linear Regression.</p>
+						)}
+						{model.model_type === "logistic_regression" && (
+							<p className="text-sm text-gray-600">No hyperparameters to set for Logistic Regression.</p>
+						)}
+						{model.model_type === "decision_tree" && (
+							<p className="text-sm text-gray-600">No hyperparameters to set for Decision Tree.</p>
+						)}
+						{model.model_type === "random_forest" && (
+							<p className="text-sm text-gray-600">No hyperparameters to set for Random Forest.</p>
+						)}
+						{model.model_type === "bagging" && (
+							<p className="text-sm text-gray-600">No hyperparameters to set for Bagging.</p>
+						)}
+						{model.model_type === "boosting" && (
+							<p className="text-sm text-gray-600">No hyperparameters to set for Boosting.</p>
+						)}
+						{model.model_type === "svm" && (
+							<p className="text-sm text-gray-600">No hyperparameters to set for SVM.</p>
+						)}
+						{model.model_type === "mlp" && (
+							<div className="space-y-4">
+								<div className="space-y-2">
+									<Label htmlFor="hidden-layers">Hidden Layer Sizes</Label>
+									<Input
+										id="hidden-layers"
+										type="text"
+										value={hiddenLayers}
+										onChange={(e) => setHiddenLayers(e.target.value)}
+										placeholder="e.g., 100 or 100,50"
+									/>
+									<p className="text-xs text-gray-500">Comma-separated numbers for each hidden layer (e.g., "100,50" for two layers)</p>
+								</div>
+								
+								<div className="space-y-2">
+									<Label htmlFor="activation">Activation Function</Label>
+									<Select value={activation} onValueChange={setActivation}>
+										<SelectTrigger id="activation">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent className="bg-white">
+											<SelectItem value="relu" className="hover:bg-gray-200">ReLU</SelectItem>
+											<SelectItem value="tanh" className="hover:bg-gray-200">Tanh</SelectItem>
+											<SelectItem value="logistic" className="hover:bg-gray-200">Logistic (Sigmoid)</SelectItem>
+											<SelectItem value="identity" className="hover:bg-gray-200">Identity (Linear)</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								
+								<div className="space-y-2">
+									<Label htmlFor="solver">Solver</Label>
+									<Select value={solver} onValueChange={setSolver}>
+										<SelectTrigger id="solver">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent className="bg-white">
+											<SelectItem value="adam" className="hover:bg-gray-200">Adam</SelectItem>
+											<SelectItem value="sgd" className="hover:bg-gray-200">SGD</SelectItem>
+											<SelectItem value="lbfgs" className="hover:bg-gray-200">L-BFGS</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								
+								<div className="grid grid-cols-2 gap-4">
+									<div className="space-y-2">
+										<Label htmlFor="max-iter">Max Iterations</Label>
+										<Input
+											id="max-iter"
+											type="number"
+											value={maxIter}
+											onChange={(e) => setMaxIter(e.target.value)}
+											min="1"
+										/>
+									</div>
+									
+									<div className="space-y-2">
+										<Label htmlFor="learning-rate">Learning Rate</Label>
+										<Input
+											id="learning-rate"
+											type="number"
+											step="0.0001"
+											value={learningRate}
+											onChange={(e) => setLearningRate(e.target.value)}
+											min="0.0001"
+										/>
+									</div>
+								</div>
+								
+								<div className="space-y-2">
+									<Label htmlFor="alpha">L2 Regularization (Alpha)</Label>
+									<Input
+										id="alpha"
+										type="number"
+										step="0.0001"
+										value={alpha}
+										onChange={(e) => setAlpha(e.target.value)}
+										min="0"
+									/>
+									<p className="text-xs text-gray-500">L2 penalty parameter (regularization strength)</p>
+								</div>
+							</div>
+						)}
+						{error && <p className="text-sm text-red-500">{error}</p>}
+					</div>
+				)}
+				
 				<div className="flex justify-end gap-3">
-					<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => setOpen(false)}>
-						Cancel
+					<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => {
+						setOpen(false)
+						setShowVisualizer(false)
+					}}>
+						{isTraining ? "Close" : "Cancel"}
 					</Button>
-					<Button
-						className="bg-blue-600 hover:bg-blue-700 text-white"
-						onClick={handleTrain}
-						disabled={model.id === -1}
-					>
-						Train
-					</Button>
+					{!showVisualizer && (
+						<Button
+							className="bg-blue-600 hover:bg-blue-700 text-white"
+							onClick={handleTrain}
+							disabled={model.id === -1 || isTraining}
+						>
+							{isTraining ? "Training..." : "Train"}
+						</Button>
+					)}
 				</div>
 			</DialogContent>
 		</Dialog>
