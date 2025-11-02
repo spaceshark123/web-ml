@@ -17,7 +17,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     accuracy_score, mean_squared_error, mean_absolute_error, r2_score,
     precision_score, recall_score, f1_score, roc_auc_score, roc_curve,
-    precision_recall_curve, average_precision_score
+    precision_recall_curve, average_precision_score, confusion_matrix
 )
 from sklearn.model_selection import cross_val_score, StratifiedKFold, KFold
 import warnings
@@ -175,16 +175,15 @@ class ModelWrapper:
         self.metrics = {}
         self.regression = regression
 
-    def train(self, X, y, progress_callback=None, pause_check=None, early_stop_check=None, start_epoch=0, **train_kwargs):
+    def train(self, X, y, progress_callback=None, pause_check=None, early_stop_check=None, start_epoch=0, keep_model=False, **train_kwargs):
         # X,y are pandas or numpy-like
         
-        # For MLP: Only create a fresh model instance if starting from scratch (start_epoch == 0)
-        # When resuming (start_epoch > 0), keep the existing model loaded from blob
+        # For MLP: Create a fresh model instance unless keep_model=True (for early-stopped retraining)
         if self.model_type == 'mlp':
-            if start_epoch == 0:
+            if not keep_model:
                 # Starting fresh - create new model
                 self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
-            # else: keep existing model from blob for resuming
+            # else: keep existing model from blob (for early-stopped retraining)
         elif self.model is None:
             self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
 
@@ -1061,6 +1060,98 @@ def compare_two_models(model_id, other_id):
         
     return jsonify(data)
 
+# ===== Experiments / Evaluation endpoint =====
+@app.route('/api/models/<int:model_id>/experiments', methods=['GET'])
+@login_required
+def model_experiments(model_id):
+    m = ModelEntry.query.get_or_404(model_id)
+    if m.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    try:
+        # Prepare model and data
+        wrapper = ModelWrapper.from_db_record(m)
+        ds, X, y, X_train, X_test, y_train, y_test = _load_dataset_for_model(m)
+
+        result = {
+            'model_id': m.id,
+            'model_name': m.name,
+            'model_type': m.model_type,
+            'type': 'regression' if ds.regression else 'classification',
+            'metrics': {},
+        }
+
+        if ds.regression:
+            # Regression metrics
+            reg_metrics = _regression_metrics(wrapper, X_test, y_test)
+            result['metrics'].update(reg_metrics)
+        else:
+            # Classification metrics + curves
+            cls_metrics = _classification_metrics(wrapper, X_test, y_test)
+            result['metrics'].update(cls_metrics)
+
+            # Confusion matrix
+            try:
+                preds = wrapper.predict(X_test)
+                labels = sorted(list(map(lambda v: v.item() if hasattr(v, 'item') else v, np.unique(y_test))))
+                cm = confusion_matrix(y_test, preds, labels=labels)
+                result['confusion_matrix'] = {
+                    'labels': [str(l) for l in labels],
+                    'matrix': cm.astype(int).tolist()
+                }
+            except Exception:
+                pass
+
+            # Class imbalance info for PR curve visibility guidance
+            imb = _class_imbalance_info(y_test)
+            if imb:
+                result['imbalance'] = imb
+
+        # SHAP feature importance (best-effort)
+        try:
+            import shap  # type: ignore
+            # sample background and evaluation sets to keep it fast
+            bg_sample = X_train.sample(min(100, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
+            eval_sample = X_test.sample(min(200, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
+
+            explainer = None
+            model = wrapper.model
+            model_name = type(model).__name__.lower()
+            if any(k in model_name for k in ['forest', 'tree', 'boost']):
+                explainer = shap.TreeExplainer(model, feature_perturbation='tree_path_dependent')
+                shap_vals = explainer.shap_values(eval_sample)
+            elif any(k in model_name for k in ['linear', 'logistic']):
+                # For classification, LinearExplainer needs a link; shap handles it internally
+                explainer = shap.LinearExplainer(model, bg_sample)
+                shap_vals = explainer.shap_values(eval_sample)
+            else:
+                # Fallback to model-agnostic (might be slower but we sample)
+                explainer = shap.KernelExplainer(lambda Xk: model.predict_proba(Xk)[:,1] if hasattr(model, 'predict_proba') else model.predict(Xk), bg_sample, link="identity")
+                shap_vals = explainer.shap_values(eval_sample, nsamples=100)
+
+            # shap_values can be list for classification (per class). Use positive class or first entry
+            if isinstance(shap_vals, list):
+                # prefer positive class if binary
+                arr = shap_vals[1] if len(shap_vals) > 1 else shap_vals[0]
+            else:
+                arr = shap_vals
+
+            mean_abs = np.abs(arr).mean(axis=0)
+            features = list(eval_sample.columns)
+            pairs = sorted([{'feature': f, 'importance': float(v)} for f, v in zip(features, mean_abs)], key=lambda x: x['importance'], reverse=True)
+            result['shap'] = {
+                'feature_importance': pairs[:20],
+                'total_features': len(features)
+            }
+        except Exception as e:
+            # SHAP optional, ignore failures
+            result['shap'] = {'feature_importance': [], 'error': str(e)}
+
+        return jsonify(result)
+    except Exception as e:
+        print(f"Error in model_experiments: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 # create model from parameters
 @app.route('/api/models', methods=['POST'])
 @login_required
@@ -1449,13 +1540,13 @@ def handle_training(data):
         # Train with streaming
         wrapper = ModelWrapper.from_db_record(m_entry)
         
-        # If model was early stopped, resume from the saved epoch
+        # For early-stopped models, start epoch numbering from 0 (not resuming from saved epoch)
+        # The model weights are preserved, but epoch counter resets
         start_epoch = 0
-        if m_entry.early_stopped and m_entry.current_epoch is not None:
-            start_epoch = m_entry.current_epoch
-            print(f"[WebSocket] Resuming training from epoch {start_epoch}")
+        keep_model = m_entry.early_stopped  # Keep model weights if this was early stopped
+        print(f"[WebSocket] Starting training from epoch {start_epoch}, keep_model={keep_model}")
         
-        wrapper.train(X_train, y_train, progress_callback=progress_callback, pause_check=pause_check, early_stop_check=early_stop_check, start_epoch=start_epoch)
+        wrapper.train(X_train, y_train, progress_callback=progress_callback, pause_check=pause_check, early_stop_check=early_stop_check, start_epoch=start_epoch, keep_model=keep_model)
         
         print("[WebSocket] Training complete, evaluating...")
         # Evaluate and save

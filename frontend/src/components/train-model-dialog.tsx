@@ -237,7 +237,10 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				}
 				if (data.params.activation) setActivation(data.params.activation)
 				if (data.params.solver) setSolver(data.params.solver)
-				if (data.params.max_iter) setMaxIter(String(data.params.max_iter))
+				// Only load max_iter if NOT early stopped (user should set new epoch count)
+				if (!data.early_stopped && data.params.max_iter) {
+					setMaxIter(String(data.params.max_iter))
+				}
 				if (data.params.learning_rate_init) setLearningRate(String(data.params.learning_rate_init))
 				if (data.params.alpha) setAlpha(String(data.params.alpha))
 			}
@@ -251,15 +254,6 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			getModel()
 		}
 	}, [open, modelIdInput])
-
-	// Auto-start training if model was early stopped
-	useEffect(() => {
-		if (open && earlyStopped && model.model_type === 'mlp' && !showVisualizer) {
-			console.log("Auto-starting training for early-stopped model")
-			// startPaused is already set in getModel based on was_paused flag
-			handleTrain()
-		}
-	}, [open, earlyStopped, model.model_type])
 
 	// Handle dialog close - reset state
 	const handleOpenChange = (newOpen: boolean) => {
@@ -337,6 +331,16 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 						)}
 						{model.model_type === "mlp" && (
 							<div className="space-y-4">
+								{earlyStopped && (
+									<div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
+										<p className="text-sm text-blue-800 font-medium">
+											Resuming early-stopped training
+										</p>
+										<p className="text-xs text-blue-600 mt-1">
+											Only the number of epochs can be changed. Other hyperparameters are locked to maintain model consistency.
+										</p>
+									</div>
+								)}
 								<div className="space-y-2">
 									<Label htmlFor="hidden-layers">Hidden Layer Sizes</Label>
 									<Input
@@ -345,14 +349,16 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 										value={hiddenLayers}
 										onChange={(e) => setHiddenLayers(e.target.value)}
 										placeholder="e.g., 100 or 100,50"
+										disabled={earlyStopped}
+										className={earlyStopped ? "bg-gray-100 cursor-not-allowed" : ""}
 									/>
 									<p className="text-xs text-gray-500">Comma-separated numbers for each hidden layer (e.g., "100,50" for two layers)</p>
 								</div>
 								
 								<div className="space-y-2">
 									<Label htmlFor="activation">Activation Function</Label>
-									<Select value={activation} onValueChange={setActivation}>
-										<SelectTrigger id="activation">
+									<Select value={activation} onValueChange={setActivation} disabled={earlyStopped}>
+										<SelectTrigger id="activation" className={earlyStopped ? "bg-gray-100 cursor-not-allowed" : ""}>
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent className="bg-white">
@@ -366,8 +372,8 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 								
 								<div className="space-y-2">
 									<Label htmlFor="solver">Solver</Label>
-									<Select value={solver} onValueChange={setSolver}>
-										<SelectTrigger id="solver">
+									<Select value={solver} onValueChange={setSolver} disabled={earlyStopped}>
+										<SelectTrigger id="solver" className={earlyStopped ? "bg-gray-100 cursor-not-allowed" : ""}>
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent className="bg-white">
@@ -399,6 +405,8 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 											value={learningRate}
 											onChange={(e) => setLearningRate(e.target.value)}
 											min="0.0001"
+											disabled={earlyStopped}
+											className={earlyStopped ? "bg-gray-100 cursor-not-allowed" : ""}
 										/>
 									</div>
 								</div>
@@ -412,6 +420,8 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 										value={alpha}
 										onChange={(e) => setAlpha(e.target.value)}
 										min="0"
+										disabled={earlyStopped}
+										className={earlyStopped ? "bg-gray-100 cursor-not-allowed" : ""}
 									/>
 									<p className="text-xs text-gray-500">L2 penalty parameter (regularization strength)</p>
 								</div>

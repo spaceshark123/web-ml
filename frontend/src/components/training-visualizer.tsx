@@ -48,6 +48,13 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
   const lastMoveTimeRef = useRef(0)
   const lastMoveXRef = useRef(0)
   const momentumAnimationRef = useRef<number | null>(null)
+  // Keep current xDomain in a ref for momentum animation
+  const xDomainRef = useRef<[number, number] | null>(null)
+
+  // Sync xDomain state with ref
+  useEffect(() => {
+    xDomainRef.current = xDomain
+  }, [xDomain])
 
   const getDataBounds = () => {
     if (metrics.length === 0) return { min: 0, max: 1 }
@@ -81,6 +88,62 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     if (!xDomain || metrics.length === 0) return metrics
     return metrics.filter(m => m.epoch >= xDomain[0] && m.epoch <= xDomain[1])
   }
+
+  // Add native wheel event listeners to prevent dialog scrolling AND handle zoom
+  useEffect(() => {
+    const lossContainer = lossContainerRef.current
+    const metricContainer = metricContainerRef.current
+    
+    const handleWheel = (e: WheelEvent, container: HTMLDivElement) => {
+      if (isTraining) return
+      if (!xDomain || !container) return
+      
+      e.preventDefault()
+      e.stopPropagation()
+      
+      const rect = container.getBoundingClientRect()
+      const width = rect.width
+      const mouseX = e.clientX - rect.left
+      const [d0, d1] = xDomain
+      const span = d1 - d0
+      const anchor = d0 + (mouseX / Math.max(1, width)) * span
+      
+      // Zoom factor: deltaY > 0 => zoom out, < 0 => zoom in
+      const zoom = Math.exp(e.deltaY * 0.001)
+      let newMin = anchor - (anchor - d0) * zoom
+      let newMax = anchor + (d1 - anchor) * zoom
+      const clamped = clampDomain([newMin, newMax])
+      setXDomain(clamped)
+      
+      // Update Y domains after zoom
+      const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
+      const lossYBounds = getYDataBounds('loss', visible)
+      setLossYDomain([lossYBounds.min, lossYBounds.max])
+      if (visible.length > 0 && visible[0].metric !== undefined) {
+        const metricYBounds = getYDataBounds('metric', visible)
+        setMetricYDomain([metricYBounds.min, metricYBounds.max])
+      }
+    }
+    
+    const lossWheelHandler = (e: WheelEvent) => lossContainer && handleWheel(e, lossContainer)
+    const metricWheelHandler = (e: WheelEvent) => metricContainer && handleWheel(e, metricContainer)
+    
+    if (lossContainer) {
+      lossContainer.addEventListener('wheel', lossWheelHandler, { passive: false })
+    }
+    if (metricContainer) {
+      metricContainer.addEventListener('wheel', metricWheelHandler, { passive: false })
+    }
+    
+    return () => {
+      if (lossContainer) {
+        lossContainer.removeEventListener('wheel', lossWheelHandler)
+      }
+      if (metricContainer) {
+        metricContainer.removeEventListener('wheel', metricWheelHandler)
+      }
+    }
+  }, [isTraining, xDomain, metrics])
 
   // Initialize domain when metrics first arrive or when domain becomes invalid
   useEffect(() => {
@@ -131,37 +194,9 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     return [d0, d1]
   }
 
-  // Create wheel handler bound to a specific container
-  const makeWheelHandler = (container: React.RefObject<HTMLDivElement | null>): React.WheelEventHandler<HTMLDivElement> => (e) => {
-    if (isTraining) return
-    if (!xDomain || !container.current) return
-    e.preventDefault()
-    const rect = container.current.getBoundingClientRect()
-    const width = rect.width
-    const mouseX = e.clientX - rect.left
-    const [d0, d1] = xDomain
-    const span = d1 - d0
-    const anchor = d0 + (mouseX / Math.max(1, width)) * span
-    // Zoom factor: deltaY > 0 => zoom out, < 0 => zoom in
-    const zoom = Math.exp(e.deltaY * 0.001)
-    let newMin = anchor - (anchor - d0) * zoom
-    let newMax = anchor + (d1 - anchor) * zoom
-    const clamped = clampDomain([newMin, newMax])
-    setXDomain(clamped)
-    
-    // Update Y domains after zoom
-    const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
-    const lossYBounds = getYDataBounds('loss', visible)
-    setLossYDomain([lossYBounds.min, lossYBounds.max])
-    if (visible.length > 0 && visible[0].metric !== undefined) {
-      const metricYBounds = getYDataBounds('metric', visible)
-      setMetricYDomain([metricYBounds.min, metricYBounds.max])
-    }
-  }
-
   const makeMouseDownHandler = (container: React.RefObject<HTMLDivElement | null>): React.MouseEventHandler<HTMLDivElement> => (e) => {
     if (isTraining) return
-    if (!xDomain || !container.current) return
+    if (!container.current) return
     
     // Cancel any ongoing momentum animation
     if (momentumAnimationRef.current !== null) {
@@ -169,9 +204,13 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       momentumAnimationRef.current = null
     }
     
+    // Use the ref to get the most current domain value (in case momentum just updated it)
+    const currentDomain = xDomainRef.current
+    if (!currentDomain) return
+    
     isPanningRef.current = true
     const rect = container.current.getBoundingClientRect()
-    panStartRef.current = { x: e.clientX, domain: xDomain, width: rect.width }
+    panStartRef.current = { x: e.clientX, domain: currentDomain, width: rect.width }
     velocityRef.current = 0
     lastMoveTimeRef.current = Date.now()
     lastMoveXRef.current = e.clientX
@@ -214,18 +253,30 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
   }
 
   const applyMomentum = () => {
-    if (!xDomain || Math.abs(velocityRef.current) < 0.01) {
+    const currentDomain = xDomainRef.current
+    // If momentum is effectively done or domain not ready, finalize and recalc Y once
+    if (!currentDomain || Math.abs(velocityRef.current) < 0.01) {
+      if (currentDomain) {
+        const visibleEnd = metrics.filter(m => m.epoch >= currentDomain[0] && m.epoch <= currentDomain[1])
+        const lossYBoundsEnd = getYDataBounds('loss', visibleEnd)
+        setLossYDomain([lossYBoundsEnd.min, lossYBoundsEnd.max])
+        if (visibleEnd.length > 0 && visibleEnd[0].metric !== undefined) {
+          const metricYBoundsEnd = getYDataBounds('metric', visibleEnd)
+          setMetricYDomain([metricYBoundsEnd.min, metricYBoundsEnd.max])
+        }
+      }
       momentumAnimationRef.current = null
       return
     }
     
     const { min, max } = getDataBounds()
-    const [d0, d1] = xDomain
+    const [d0, d1] = currentDomain
     const span = d1 - d0
     
     // Apply velocity (convert from pixels/ms to epochs, assuming same width as last pan)
     const width = panStartRef.current?.width || 1
-    const deltaEpoch = -(velocityRef.current * 16) * (span / width) // ~16ms per frame
+    // Reduce momentum scale for a gentler glide
+    const deltaEpoch = -(velocityRef.current * 0.5) * (span / width) // was 16
     
     let newMin = d0 + deltaEpoch
     let newMax = d1 + deltaEpoch
@@ -254,8 +305,8 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       setMetricYDomain([metricYBounds.min, metricYBounds.max])
     }
     
-    // Apply friction
-    velocityRef.current *= 0.95
+    // Apply stronger friction to shorten momentum
+    velocityRef.current *= 0.5 // was 0.95
     
     // Continue animation
     momentumAnimationRef.current = requestAnimationFrame(applyMomentum)
@@ -265,6 +316,18 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     // Reset cursors on both containers
     if (lossContainerRef.current) lossContainerRef.current.style.cursor = 'default'
     if (metricContainerRef.current) metricContainerRef.current.style.cursor = 'default'
+    
+    // Recalculate Y domains at the end of the drag based on the final domain
+    const currentDomain = xDomainRef.current
+    if (currentDomain) {
+      const visibleEnd = metrics.filter(m => m.epoch >= currentDomain[0] && m.epoch <= currentDomain[1])
+      const lossYBoundsEnd = getYDataBounds('loss', visibleEnd)
+      setLossYDomain([lossYBoundsEnd.min, lossYBoundsEnd.max])
+      if (visibleEnd.length > 0 && visibleEnd[0].metric !== undefined) {
+        const metricYBoundsEnd = getYDataBounds('metric', visibleEnd)
+        setMetricYDomain([metricYBoundsEnd.min, metricYBoundsEnd.max])
+      }
+    }
     
     if (isPanningRef.current && Math.abs(velocityRef.current) > 0.1) {
       // Start momentum animation
@@ -517,7 +580,6 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
             <CardContent>
               <div
                 ref={lossContainerRef}
-                onWheel={makeWheelHandler(lossContainerRef)}
                 onMouseDown={makeMouseDownHandler(lossContainerRef)}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
@@ -527,7 +589,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                 title={isTraining ? 'Zoom/pan enabled after training completes' : 'Scroll to zoom • Drag to pan • Double-click to reset'}
               >
                 <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={metrics}>
+                  <LineChart data={metrics} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="epoch"
@@ -577,7 +639,6 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
               <CardContent>
                 <div
                   ref={metricContainerRef}
-                  onWheel={makeWheelHandler(metricContainerRef)}
                   onMouseDown={makeMouseDownHandler(metricContainerRef)}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
@@ -587,7 +648,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                   title={isTraining ? 'Zoom/pan enabled after training completes' : 'Scroll to zoom • Drag to pan • Double-click to reset'}
                 >
                   <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={metrics}>
+                    <LineChart data={metrics} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis
                         dataKey="epoch"
