@@ -14,7 +14,13 @@ from sklearn.ensemble import BaggingClassifier, BaggingRegressor, AdaBoostClassi
 from sklearn.svm import SVC, SVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, mean_squared_error
+from sklearn.metrics import (
+    accuracy_score, mean_squared_error, mean_absolute_error, r2_score,
+    precision_score, recall_score, f1_score, roc_auc_score, roc_curve,
+    precision_recall_curve, average_precision_score
+)
+from sklearn.model_selection import cross_val_score, StratifiedKFold, KFold
+import warnings
 from flask_socketio import SocketIO, emit
 import threading
 
@@ -692,7 +698,6 @@ def get_dataset(dataset_id):
         'file_path': ds.file_path,
         'user_id': ds.user_id,
         'created_at': ds.created_at,
-        'updated_at': ds.updated_at,
         'input_features': ds.input_features,
         'target_feature': ds.target_feature,
         'train_test_split': ds.train_test_split,
@@ -833,6 +838,184 @@ def list_models():
             'metrics': json.loads(m.metrics) if m.metrics else {}
         })
     return jsonify(out)
+
+def _load_dataset_for_model(m_entry: ModelEntry):
+    ds = Dataset.query.get_or_404(m_entry.dataset_id)
+    ext = os.path.splitext(ds.name)[1].lower()
+    if ext == '.csv':
+        df = pd.read_csv(ds.file_path)
+    elif ext == '.txt':
+        df = pd.read_csv(ds.file_path, sep='\t')
+    elif ext == '.xlsx':
+        import openpyxl
+        df = pd.read_excel(ds.file_path, engine='openpyxl')
+    else:
+        raise ValueError(f'Unsupported dataset format: {ext}')
+    df.dropna(inplace=True)
+    if ds.target_feature and ds.target_feature in df.columns:
+        y = df[ds.target_feature]
+        X = df[ds.input_features.split(',')] if ds.input_features else df.drop(columns=[ds.target_feature])
+    else:
+        X, y = df.iloc[:, :-1], df.iloc[:, -1]
+    # compute split
+    test_size = 0.2
+    if ds.train_test_split is not None:
+        test_size = max(0.01, min(0.99, ds.train_test_split / 100.0))
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+    return ds, X, y, X_train, X_test, y_train, y_test
+
+def _get_proba_or_score(model, X):
+    # Try predict_proba, else decision_function, else None
+    try:
+        proba = model.predict_proba(X)
+        # Return positive class probabilities for binary
+        if proba.ndim == 2 and proba.shape[1] >= 2:
+            return proba[:, 1]
+        return proba
+    except Exception:
+        try:
+            return model.decision_function(X)
+        except Exception:
+            return None
+
+def _classification_metrics(wrapper: ModelWrapper, X_test, y_test):
+    preds = wrapper.predict(X_test)
+    metrics = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        metrics['accuracy'] = float(accuracy_score(y_test, preds))
+        # Use weighted for robustness across multiclass
+        metrics['precision'] = float(precision_score(y_test, preds, average='weighted', zero_division=0))
+        metrics['recall'] = float(recall_score(y_test, preds, average='weighted', zero_division=0))
+        metrics['f1'] = float(f1_score(y_test, preds, average='weighted', zero_division=0))
+    # ROC-AUC and curves for binary classification if possible
+    y_score = _get_proba_or_score(wrapper.model, X_test)
+    try:
+        if y_score is not None:
+            # If y_test has exactly 2 classes, compute ROC-AUC and curve
+            unique = np.unique(y_test)
+            if unique.shape[0] == 2:
+                # Convert y to {0,1}
+                y_bin = (y_test == unique.max()).astype(int)
+                fpr, tpr, _ = roc_curve(y_bin, y_score)
+                metrics['roc_auc'] = float(roc_auc_score(y_bin, y_score))
+                metrics['roc_curve'] = [{'fpr': float(f), 'tpr': float(t)} for f, t in zip(fpr, tpr)]
+                # PR curve and AUC
+                prec, rec, _ = precision_recall_curve(y_bin, y_score)
+                pr_points = [{'precision': float(p), 'recall': float(r)} for p, r in zip(prec, rec)]
+                metrics['pr_curve'] = pr_points
+                metrics['pr_auc'] = float(average_precision_score(y_bin, y_score))
+            else:
+                # multiclass ROC-AUC (no curve)
+                metrics['roc_auc'] = float(roc_auc_score(y_test, y_score, multi_class='ovr'))
+    except Exception:
+        pass
+    return metrics
+
+def _regression_metrics(wrapper: ModelWrapper, X_test, y_test):
+    preds = wrapper.predict(X_test)
+    return {
+        'mse': float(mean_squared_error(y_test, preds)),
+        'mae': float(mean_absolute_error(y_test, preds)),
+        'r2': float(r2_score(y_test, preds)),
+    }
+
+def _class_imbalance_info(y):
+    try:
+        values, counts = np.unique(y, return_counts=True)
+        total = counts.sum()
+        min_pct = float(counts.min()) / float(total)
+        imbalance_ratio = float(counts.max()) / float(counts.min()) if counts.min() > 0 else float('inf')
+        return {
+            'minority_class_percentage': min_pct * 100.0,
+            'imbalance_ratio': imbalance_ratio,
+            'is_imbalanced': min_pct < 0.35
+        }
+    except Exception:
+        return None
+
+@app.route('/api/models/compare', methods=['GET'])
+@login_required
+def compare_models_list():
+    # Provide a simplified list for selection and leaderboard, reusing list_models data
+    models = ModelEntry.query.filter_by(user_id=current_user.id).order_by(ModelEntry.created_at.desc()).all()
+    out = []
+    for m in models:
+        out.append({
+            'id': m.id,
+            'name': m.name,
+            'model_type': m.model_type,
+            'metrics': json.loads(m.metrics) if m.metrics else {},
+        })
+    return jsonify(out)
+
+@app.route('/api/models/<int:model_id>/compare/<int:other_id>', methods=['GET'])
+@login_required
+def compare_two_models(model_id, other_id):
+    m1 = ModelEntry.query.get_or_404(model_id)
+    m2 = ModelEntry.query.get_or_404(other_id)
+    if m1.user_id != current_user.id or m2.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    # Prepare wrappers and datasets
+    w1 = ModelWrapper.from_db_record(m1)
+    w2 = ModelWrapper.from_db_record(m2)
+
+    # Load datasets and compute metrics separately (datasets may differ)
+    def build_result(entry, wrapper):
+        ds, X, y, X_train, X_test, y_train, y_test = _load_dataset_for_model(entry)
+        # Use stored model as-is for evaluation
+        result_metrics = {}
+        if ds.regression:
+            result_metrics.update(_regression_metrics(wrapper, X_test, y_test))
+        else:
+            result_metrics.update(_classification_metrics(wrapper, X_test, y_test))
+        # Add preprocessing/imbalance info
+        prep = {
+            'original_rows': int(X.shape[0]),
+            'final_rows': int(X.shape[0]),
+            'missing_values_removed': 0,
+            'duplicates_removed': 0,
+        }
+        imb = _class_imbalance_info(y_test) if not ds.regression else None
+        if imb:
+            prep['imbalance'] = imb
+        # CV (lightweight)
+        cv = None
+        try:
+            params = json.loads(entry.params) if entry.params else {}
+            est = ModelWrapper._instantiate_from_type(ds.regression, entry.model_type, params)
+            if ds.regression:
+                kf = KFold(n_splits=3, shuffle=True, random_state=42)
+                cv = {
+                    'r2_mean': float(cross_val_score(est, X, y, cv=kf, scoring='r2').mean()),
+                    'mse_mean': float((-cross_val_score(est, X, y, cv=kf, scoring='neg_mean_squared_error')).mean()),
+                }
+            else:
+                skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    cv = {
+                        'accuracy_mean': float(cross_val_score(est, X, y, cv=skf, scoring='accuracy').mean()),
+                        'f1_mean': float(cross_val_score(est, X, y, cv=skf, scoring='f1_weighted').mean()),
+                    }
+        except Exception:
+            pass
+
+        # Compose output
+        return {
+            'id': entry.id,
+            'name': entry.name,
+            'model_type': entry.model_type,
+            'metrics': {**(json.loads(entry.metrics) if entry.metrics else {}), **result_metrics, 'preprocessing': prep},
+            'cv': cv
+        }
+
+    data = {
+        'model1': build_result(m1, w1),
+        'model2': build_result(m2, w2),
+    }
+    return jsonify(data)
 
 # create model from parameters
 @app.route('/api/models', methods=['POST'])
