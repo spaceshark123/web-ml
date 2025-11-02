@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
-import os, pandas as pd, pickle, io, datetime
+import os, pandas as pd, pickle, io, datetime, numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import BaggingClassifier, BaggingRegressor, AdaBoostClassifier, GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
@@ -15,6 +15,8 @@ from sklearn.svm import SVC, SVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_squared_error
+from flask_socketio import SocketIO, emit
+import threading
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'devsecret'
@@ -31,6 +33,9 @@ CORS(app,
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization"],
      expose_headers=["Content-Range", "X-Content-Range"])
+
+# Configure SocketIO
+socketio = SocketIO(app, cors_allowed_origins="http://localhost:5173", async_mode='threading')
 
 # Configure session
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -157,17 +162,63 @@ class ModelWrapper:
         self.metrics = {}
         self.regression = regression
 
-    def train(self, X, y, **train_kwargs):
+    def train(self, X, y, progress_callback=None, **train_kwargs):
         # X,y are pandas or numpy-like
         if self.model is None:
             self.model = self._instantiate_from_type(self.regression, self.model_type, self.params)
 
-        # For scikit-learn style models
-        if hasattr(self.model, 'fit'):
-            self.model.fit(X, y)
+        # For MLP with streaming support
+        if self.model_type == 'mlp' and progress_callback:
+            print(f"[MLP Training] Starting epoch-wise training with progress callback")
+            
+            # Get max iterations from model params
+            max_iter = self.model.max_iter if hasattr(self.model, 'max_iter') else 200
+            print(f"[MLP Training] Max iterations: {max_iter}")
+            
+            # Use warm_start to enable iterative training
+            self.model.warm_start = True
+            self.model.max_iter = 1  # Train one epoch at a time
+            
+            # Track previous loss to detect convergence
+            prev_loss = float('inf')
+            tol = self.model.tol if hasattr(self.model, 'tol') else 1e-4
+            
+            for epoch in range(max_iter):
+                # Train for one iteration
+                self.model.fit(X, y)
+                
+                # Calculate metrics for this epoch
+                train_preds = self.model.predict(X)
+                train_loss = self.model.loss_ if hasattr(self.model, 'loss_') else 0.0
+                train_accuracy = accuracy_score(y, train_preds)
+                
+                print(f"[MLP Training] Epoch {epoch + 1}/{max_iter} - Loss: {train_loss:.6f}, Accuracy: {train_accuracy:.4f}")
+                
+                # Send progress update
+                progress_callback({
+                    'epoch': epoch + 1,
+                    'loss': float(train_loss),
+                    'accuracy': float(train_accuracy)
+                })
+                
+                # Check for convergence (loss not improving)
+                if abs(prev_loss - train_loss) < tol:
+                    print(f"[MLP Training] Converged at epoch {epoch + 1}")
+                    break
+                
+                prev_loss = train_loss
+                
+                # Increment max_iter for next iteration
+                self.model.max_iter += 1
+            
+            print(f"[MLP Training] Training completed")
         else:
-            # If the model is custom and doesn't have fit, raise
-            raise ValueError("Model does not support .fit() - provide a fitted model blob for 'custom' models")
+            # For scikit-learn style models (standard training)
+            if hasattr(self.model, 'fit'):
+                self.model.fit(X, y)
+            else:
+                # If the model is custom and doesn't have fit, raise
+                raise ValueError("Model does not support .fit() - provide a fitted model blob for 'custom' models")
 
     def predict(self, X):
         if self.model is None:
@@ -252,9 +303,13 @@ class ModelWrapper:
                 return SVR(**(params or {}))
             return SVC(**(params or {}))
         if model_type == 'mlp':
+            # Convert hidden_layer_sizes from list to tuple for sklearn
+            mlp_params = params.copy() if params else {}
+            if 'hidden_layer_sizes' in mlp_params and isinstance(mlp_params['hidden_layer_sizes'], list):
+                mlp_params['hidden_layer_sizes'] = tuple(mlp_params['hidden_layer_sizes'])
             if regression:
-                return MLPRegressor(**(params or {}))
-            return MLPClassifier(**(params or {}))
+                return MLPRegressor(**mlp_params)
+            return MLPClassifier(**mlp_params)
         raise ValueError(f"Unknown model_type: {model_type}")
 
 @login_manager.user_loader
@@ -1020,6 +1075,116 @@ def train(model_id):
         print(f"Error during model training: {str(e)}")
         return jsonify({'error': f'Failed to train model: {str(e)}'}), 500
 
+# WebSocket training endpoint for streaming progress
+@socketio.on('start_training')
+def handle_training(data):
+    """
+    WebSocket handler for training with real-time progress updates.
+    Expects: { 'model_id': int }
+    """
+    print(f"\n[WebSocket] Received start_training event with data: {data}")
+    try:
+        model_id = data.get('model_id')
+        if not model_id:
+            print("[WebSocket] Error: model_id is required")
+            emit('training_error', {'message': 'model_id is required'})
+            return
+        
+        print(f"[WebSocket] Starting training for model_id: {model_id}")
+        
+        # Verify user is authenticated (SocketIO session)
+        # Note: For production, implement proper auth via session or token
+        
+        m_entry = ModelEntry.query.get(model_id)
+        if not m_entry:
+            print(f"[WebSocket] Error: Model {model_id} not found")
+            emit('training_error', {'message': 'Model not found'})
+            return
+        
+        print(f"[WebSocket] Found model: {m_entry.name} (type: {m_entry.model_type})")
+        
+        ds = Dataset.query.get(m_entry.dataset_id)
+        if not ds:
+            print("[WebSocket] Error: Dataset not found")
+            emit('training_error', {'message': 'Dataset not found'})
+            return
+        
+        print(f"[WebSocket] Found dataset: {ds.name}")
+        
+        # Read dataset
+        ext = os.path.splitext(ds.name)[1].lower()
+        if ext == '.csv':
+            df = pd.read_csv(ds.file_path)
+        elif ext == '.txt':
+            df = pd.read_csv(ds.file_path, sep='\t')
+        elif ext == '.xlsx':
+            import openpyxl
+            df = pd.read_excel(ds.file_path, engine='openpyxl')
+        else:
+            print(f"[WebSocket] Error: Unsupported format {ext}")
+            emit('training_error', {'message': 'Unsupported dataset format'})
+            return
+        
+        print(f"[WebSocket] Loaded dataset with shape: {df.shape}")
+        
+        df.dropna(inplace=True)
+        
+        if ds.target_feature and ds.target_feature in df.columns:
+            y = df[ds.target_feature]
+            X = df[ds.input_features.split(',')] if ds.input_features else df.drop(columns=[ds.target_feature])
+        else:
+            X, y = df.iloc[:, :-1], df.iloc[:, -1]
+        
+        print(f"[WebSocket] X shape: {X.shape}, y shape: {y.shape}")
+        
+        test_size = 0.2
+        if ds.train_test_split is not None:
+            test_size = ds.train_test_split / 100.0
+            test_size = max(0.01, min(0.99, test_size))
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+        print(f"[WebSocket] Train/test split complete - Train: {len(X_train)}, Test: {len(X_test)}")
+        
+        # Define progress callback
+        def progress_callback(metrics):
+            print(f"[WebSocket] Emitting metrics: epoch={metrics['epoch']}, loss={metrics['loss']:.6f}, acc={metrics.get('accuracy', 0):.4f}")
+            socketio.emit('training_metrics', {
+                'type': 'metrics',
+                'epoch': metrics['epoch'],
+                'loss': metrics['loss'],
+                'accuracy': metrics.get('accuracy')
+            })
+        
+        print("[WebSocket] Starting model training...")
+        # Train with streaming
+        wrapper = ModelWrapper.from_db_record(m_entry)
+        wrapper.train(X_train, y_train, progress_callback=progress_callback)
+        
+        print("[WebSocket] Training complete, evaluating...")
+        # Evaluate and save
+        final_metrics = wrapper.evaluate(X_test, y_test)
+        entry = wrapper.to_db_record(name=m_entry.name, dataset_id=ds.id, user_id=m_entry.user_id)
+        entry.id = m_entry.id
+        entry.metrics = json.dumps(final_metrics)
+        db.session.merge(entry)
+        db.session.commit()
+        
+        print(f"[WebSocket] Emitting training_complete with metrics: {final_metrics}")
+        emit('training_complete', {
+            'type': 'complete',
+            'message': 'Training completed successfully',
+            'metrics': final_metrics
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"[WebSocket] Exception occurred:")
+        traceback.print_exc()
+        emit('training_error', {
+            'type': 'error',
+            'message': f'Training failed: {str(e)}'
+        })
+
 @app.route('/api/models/<int:model_id>/predict', methods=['POST'])
 @login_required
 def model_predict(model_id):
@@ -1139,4 +1304,4 @@ def migrate_add_model_description():
 
 # ===== Main =====
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    socketio.run(app, port=5000, debug=True, allow_unsafe_werkzeug=True)
