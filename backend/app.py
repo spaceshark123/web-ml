@@ -1477,8 +1477,26 @@ def dataset_experiments(dataset_id):
 
         X_train, X_test, y_train, y_test = train_test_split(X_processed, y, test_size=test_size, random_state=42)
 
-        processed_df = pd.DataFrame(pre.fit_transform(df))
-        processed_df.columns = pre.get_feature_names_out()
+        # fit preprocessing on X and y columns
+        processed_array = pre.fit_transform(pd.concat([X, y], axis=1))
+        processed_df = pd.DataFrame(processed_array, columns=pre.get_feature_names_out())
+        
+        # appy preprocessing to y
+        target_cols = []
+        for col in y.to_frame().columns:
+            transformed_cols = []
+            if y.to_frame()[col].dtype in ['object', 'category', 'string', 'bool']:
+                # categorical target
+                # Fit and transform
+                encoded = pre.fit_transform(df[col].to_frame())
+
+                # Get feature names
+                transformed_cols.append(pre.get_feature_names_out([col]).tolist())
+            else:
+                # numeric target
+                processed_df[col] = y.to_frame()[col].values
+                transformed_cols.append(col)
+            target_cols.extend(transformed_cols)
 
         # calculate correlation matrix for numeric features
         corr_matrix = processed_df.corr()
@@ -1497,6 +1515,7 @@ def dataset_experiments(dataset_id):
             },
             'correlation_matrix': {
                 'feature_names': corr_matrix.columns.tolist(),
+                'target_feature_names': target_cols.tolist() if isinstance(target_cols, np.ndarray) else target_cols,
                 'matrix': corr_matrix.to_numpy().tolist()
             }
         }

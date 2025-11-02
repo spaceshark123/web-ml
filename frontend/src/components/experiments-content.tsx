@@ -30,7 +30,7 @@ interface ExperimentsResponse {
 		missing_values_removed: number
 		duplicates_removed: number
 	}
-	correlation_matrix?: { feature_names: string[]; matrix: number[][] }
+	correlation_matrix?: { feature_names: string[]; target_feature_names: string[]; matrix: number[][] }
 	confusion_matrix?: { labels: string[]; matrix: number[][] }
 	imbalance?: { minority_class_percentage: number; imbalance_ratio: number; is_imbalanced: boolean, class_distribution?: Record<string, number> }
 	shap?: { feature_importance: { feature: string; importance: number }[]; total_features?: number; error?: string }
@@ -1021,7 +1021,7 @@ export function ExperimentsContent() {
 													<CardTitle className="text-lg">Feature Correlation</CardTitle>
 												</CardHeader>
 												<CardContent>
-													<CorrelationMatrix labels={experimentData.correlation_matrix.feature_names} matrix={experimentData.correlation_matrix.matrix} />
+													<CorrelationMatrix labels={experimentData.correlation_matrix.feature_names} target_feature_names={experimentData.correlation_matrix.target_feature_names.flat()} matrix={experimentData.correlation_matrix.matrix} />
 												</CardContent>
 											</Card>
 										)}
@@ -1080,165 +1080,171 @@ function ConfusionMatrix({ labels, matrix }: { labels: string[]; matrix: number[
 
 // correlation matrix should be similar to confusion matrix but it should have a color scale from blue (negative) to white (zero) to red (positive) and auto scale down cells for large matrices to take the same space
 function CorrelationMatrix({
-  labels,
-  matrix,
+	labels,
+	target_feature_names,
+	matrix,
 }: {
-  labels: string[];
-  matrix: number[][];
+	labels: string[];
+	target_feature_names: string[];
+	matrix: number[][];
 }) {
-  const size = labels.length;
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+	const size = labels.length;
+	const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const cellSize = Math.min(80, 600 / size);
-  const labelWidth = cellSize + 40;
-  const displayText = cellSize >= 25;
-  const [hoverInfo, setHoverInfo] = useState<{
-    i: number;
-    j: number;
-    val: number;
-  } | null>(null);
+	const cellSize = Math.min(80, 600 / size);
+	const labelWidth = cellSize + 40;
+	const displayText = cellSize >= 25;
+	const targetSet = new Set(target_feature_names);
+	console.log("Target features for correlation matrix:", targetSet);
+	const [hoverInfo, setHoverInfo] = useState<{ i: number; j: number; val: number } | null>(null);
 
-  // draw the heatmap onto canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+	// Draw the heatmap
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) return;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
 
-    const w = cellSize * size;
-    const h = cellSize * size;
-    canvas.width = w;
-    canvas.height = h;
+		const w = cellSize * size;
+		const h = cellSize * size;
+		canvas.width = w;
+		canvas.height = h;
 
-    for (let i = 0; i < size; i++) {
-      for (let j = 0; j < size; j++) {
-        const val = matrix[i][j];
-        let r = 255,
-          g = 255,
-          b = 255,
-          a = 1;
+		// Draw cells
+		for (let i = 0; i < size; i++) {
+			for (let j = 0; j < size; j++) {
+				const val = matrix[i][j];
+				let r = 255, g = 255, b = 255, a = 1;
 
-        if (val > 0) {
-          const intensity = Math.min(val, 1);
-          r = 220;
-          g = 38;
-          b = 38;
-          a = 0.15 + 0.65 * intensity;
-        } else if (val < 0) {
-          const intensity = Math.min(-val, 1);
-          r = 37;
-          g = 99;
-          b = 235;
-          a = 0.15 + 0.65 * intensity;
-        }
+				if (val > 0) {
+					const intensity = Math.min(val, 1);
+					r = 220; g = 38; b = 38; a = 0.15 + 0.65 * intensity;
+				} else if (val < 0) {
+					const intensity = Math.min(-val, 1);
+					r = 37; g = 99; b = 235; a = 0.15 + 0.65 * intensity;
+				}
 
-        ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
-        ctx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
+				ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+				ctx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
 
-        if (displayText) {
-          ctx.fillStyle = Math.abs(val) > 0.5 ? "white" : "#111827";
-          ctx.font = `${Math.min(14, cellSize / 5 + 4)}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(
-            val.toFixed(2),
-            j * cellSize + cellSize / 2,
-            i * cellSize + cellSize / 2
-          );
-        }
-      }
-    }
-  }, [matrix, size, cellSize, displayText]);
+				// Text overlay
+				if (displayText) {
+					ctx.fillStyle = Math.abs(val) > 0.5 ? "white" : "#111827";
+					ctx.font = `${Math.min(14, cellSize / 5 + 4)}px sans-serif`;
+					ctx.textAlign = "center";
+					ctx.textBaseline = "middle";
+					ctx.fillText(val.toFixed(2), j * cellSize + cellSize / 2, i * cellSize + cellSize / 2);
+				}
+			}
+		}
 
-  // Handle hover tooltips
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const i = Math.floor(y / cellSize);
-    const j = Math.floor(x / cellSize);
-    if (i >= 0 && i < size && j >= 0 && j < size) {
-      setHoverInfo({ i, j, val: matrix[i][j] });
-    } else {
-      setHoverInfo(null);
-    }
-  };
+		// Draw highlight borders for target features
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = "rgba(34,197,94,0.8)"; // green accent
+		target_feature_names.forEach((name) => {
+			const idx = labels.indexOf(name);
+			if (idx !== -1) {
+				// vertical highlight
+				ctx.strokeRect(idx * cellSize, 0, cellSize, h);
+				// horizontal highlight
+				ctx.strokeRect(0, idx * cellSize, w, cellSize);
+			}
+		});
+	}, [matrix, size, cellSize, displayText, target_feature_names]);
 
-  return (
-    <div className="overflow-auto max-w-full relative">
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `${labelWidth}px ${cellSize * size}px`,
-        }}
-      >
-        {/* Labels column */}
-        <div>
-          <div style={{ height: cellSize }}></div>
-          {labels.map((l, i) =>
-            displayText ? (
-              <div
-                key={i}
-                className="text-gray-600 truncate"
-                style={{
-                  height: cellSize,
-                  lineHeight: `${cellSize}px`,
-                  fontSize: Math.min(14, cellSize / 5 + 4),
-                  textAlign: "left",
-                }}
-              >
-                {l}
-              </div>
-            ) : (
-              <div key={i} style={{ height: cellSize }}></div>
-            )
-          )}
-        </div>
+	const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+		const rect = e.currentTarget.getBoundingClientRect();
+		const x = e.clientX - rect.left;
+		const y = e.clientY - rect.top;
+		const i = Math.floor(y / cellSize);
+		const j = Math.floor(x / cellSize);
+		if (i >= 0 && i < size && j >= 0 && j < size) setHoverInfo({ i, j, val: matrix[i][j] });
+		else setHoverInfo(null);
+	};
 
-        {/* Heatmap */}
-        <div>
-          {/* Header labels */}
-          <div className="flex">
-            {labels.map((l, i) =>
-              displayText ? (
-                <div
-                  key={i}
-                  className="text-gray-600 text-center truncate"
-                  style={{
-                    width: cellSize,
-                    fontSize: Math.min(14, cellSize / 5 + 4),
-                  }}
-                >
-                  {l}
-                </div>
-              ) : (
-                <div key={i} style={{ width: cellSize }}></div>
-              )
-            )}
-          </div>
-          <canvas
-            ref={canvasRef}
-            width={cellSize * size}
-            height={cellSize * size}
-            style={{ cursor: "crosshair" }}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => setHoverInfo(null)}
-          />
-        </div>
-      </div>
+	return (
+		<div className="overflow-auto max-w-full relative">
+			<div
+				className="grid"
+				style={{
+					gridTemplateColumns: `${labelWidth}px ${cellSize * size}px`,
+				}}
+			>
+				{/* Row Labels */}
+				<div>
+					<div style={{ height: displayText ? Math.min(14, cellSize / 5 + 4) * 1.5 : 0 }}></div>
+					{labels.map((l, i) => {
+						const isTarget = target_feature_names.includes(l);
+						console.log("Checking feature for target highlight:", l, target_feature_names, isTarget);
+						return displayText ? (
+							<div
+								key={i}
+								className={`truncate ${isTarget ? "font-semibold text-green-700" : "text-gray-600"}`}
+								style={{
+									height: cellSize,
+									lineHeight: `${cellSize}px`,
+									fontSize: Math.min(14, cellSize / 5 + 4),
+									textAlign: "left",
+									backgroundColor: isTarget ? "rgba(187, 247, 208, 0.4)" : undefined,
+								}}
+							>
+								{l}
+							</div>
+						) : (
+							<div key={i} style={{ height: cellSize }}></div>
+						);
+					})}
+				</div>
 
-      {hoverInfo && (
-        <div
-          className="absolute bg-gray-800 text-white text-xs px-2 py-1 rounded pointer-events-none"
-          style={{
-            top: hoverInfo.i * cellSize + cellSize / 2,
-            left: hoverInfo.j * cellSize + labelWidth + cellSize / 2,
-            transform: "translate(-50%, -100%)",
-          }}
-        >
-          {`${labels[hoverInfo.i]} × ${labels[hoverInfo.j]} = ${hoverInfo.val.toFixed(3)}`}
-        </div>
-      )}
-    </div>
-  );
+				{/* Heatmap + Column Labels */}
+				<div>
+					<div className="flex">
+						{labels.map((l, i) => {
+							const isTarget = targetSet.has(l);
+							if (isTarget) {
+								console.log("Target feature in correlation matrix:", l);
+							}
+							return displayText ? (
+								<div
+									key={i}
+									className={`text-center truncate ${isTarget ? "font-semibold text-green-700" : "text-gray-600"}`}
+									style={{
+										width: cellSize,
+										fontSize: Math.min(14, cellSize / 5 + 4),
+										backgroundColor: isTarget ? "rgba(187, 247, 208, 0.4)" : undefined,
+									}}
+								>
+									{l}
+								</div>
+							) : (
+								<div key={i} style={{ width: cellSize }}></div>
+							);
+						})}
+					</div>
+
+					<canvas
+						ref={canvasRef}
+						width={cellSize * size}
+						height={cellSize * size}
+						style={{ cursor: "crosshair" }}
+						onMouseMove={handleMouseMove}
+						onMouseLeave={() => setHoverInfo(null)}
+					/>
+				</div>
+			</div>
+
+			{hoverInfo && (
+				<div
+					className="absolute bg-gray-800 text-white text-xs px-2 py-1 rounded pointer-events-none"
+					style={{
+						top: hoverInfo.i * cellSize + cellSize / 2,
+						left: hoverInfo.j * cellSize + labelWidth + cellSize / 2,
+						transform: "translate(-50%, -100%)",
+					}}
+				>
+					{`${labels[hoverInfo.i]} × ${labels[hoverInfo.j]} = ${hoverInfo.val.toFixed(3)}`}
+				</div>
+			)}
+		</div>
+	);
 }
