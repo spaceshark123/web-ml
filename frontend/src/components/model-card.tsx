@@ -102,54 +102,12 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 					</div>
 				)}
 
-				{/* Metrics */}
-				<div className="grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-gray-200">
-					{metrics.accuracy !== undefined && (
-						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{(metrics.accuracy * 100).toFixed(2)}%</div>
-							<div className="text-xs text-gray-500 uppercase tracking-wide">Accuracy</div>
-						</div>
-					)}
-					{metrics.precision !== undefined && (
-						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{(metrics.precision * 100).toFixed(2)}%</div>
-							<div className="text-xs text-gray-500 uppercase tracking-wide">Precision</div>
-						</div>
-					)}
-					{metrics.recall !== undefined && (
-						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{(metrics.recall * 100).toFixed(2)}%</div>
-							<div className="text-xs text-gray-500 uppercase tracking-wide">Recall</div>
-						</div>
-					)}
-					{metrics.f1_score !== undefined && (
-						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{(metrics.f1_score * 100).toFixed(2)}%</div>
-							<div className="text-xs text-gray-500 uppercase tracking-wide">F1 Score</div>
-						</div>
-					)}
+				{/* Metrics: Only show MSE and wrap if needed */}
+				<div className="mb-6 pb-6 border-b border-gray-200">
 					{metrics.mse !== undefined && (
 						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{metrics.mse.toFixed(4)}</div>
+							<div className="text-2xl font-bold text-blue-600 whitespace-normal break-words break-all">{metrics.mse.toFixed(4)}</div>
 							<div className="text-xs text-gray-500 uppercase tracking-wide">MSE</div>
-						</div>
-					)}
-					{metrics.rmse !== undefined && (
-						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{metrics.rmse.toFixed(4)}</div>
-							<div className="text-xs text-gray-500 uppercase tracking-wide">RMSE</div>
-						</div>
-					)}
-					{metrics.mae !== undefined && (
-						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{metrics.mae.toFixed(4)}</div>
-							<div className="text-xs text-gray-500 uppercase tracking-wide">MAE</div>
-						</div>
-					)}
-					{metrics.r2_score !== undefined && (
-						<div className="text-center">
-							<div className="text-2xl font-bold text-blue-600">{(metrics.r2_score * 100).toFixed(2)}%</div>
-							<div className="text-xs text-gray-500 uppercase tracking-wide">R² Score</div>
 						</div>
 					)}
 				</div>
