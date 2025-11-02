@@ -425,6 +425,7 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 					<Button variant="outline" className="bg-gray-100 hover:bg-gray-200" onClick={() => {
 						setOpen(false)
 						handleDelete()
+						refreshModelsList?.()
 						resetForm()
 					}}>
 						Cancel
