@@ -1270,7 +1270,8 @@ def _class_imbalance_info(y):
         return {
             'minority_class_percentage': min_pct * 100.0,
             'imbalance_ratio': imbalance_ratio,
-            'is_imbalanced': min_pct < 0.35
+            'is_imbalanced': min_pct < 0.35,
+            'class_distribution': {str(v): int(c) for v, c in zip(values, counts)}
         }
     except Exception:
         return None
@@ -1429,6 +1430,87 @@ shap_jobs = {}
 shap_jobs_lock = Lock()
 
 # ===== Experiments / Evaluation endpoint =====
+@app.route('/api/datasets/<int:dataset_id>/experiments', methods=['GET'])
+@login_required
+def dataset_experiments(dataset_id):
+    ds = Dataset.query.get_or_404(dataset_id)
+    if ds.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    try:
+        # Prepare data
+        df = read_dataset_file(ds.file_path)
+        # Coerce numeric-like strings (currency, percents, commas) to numeric
+        df = coerce_numeric_like(df)
+        
+        num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+        cat_pipe = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='most_frequent')),
+            ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+        ])
+        pre = ColumnTransformer(
+            transformers=[
+                ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+            ],
+            remainder='drop'
+        )
+        
+        # Select features/target
+        if ds.target_feature and ds.target_feature in df.columns:
+            y = df[ds.target_feature]
+            X = df[ds.input_features.split(',')] if ds.input_features else df.drop(columns=[ds.target_feature])
+        else:
+            X, y = df.iloc[:, :-1], df.iloc[:, -1]
+        # Drop rows with missing target only; let pipelines impute X
+        if hasattr(y, 'notna'):
+            mask = y.notna()
+            X = X.loc[mask]
+            y = y.loc[mask]
+        # compute split
+        test_size = 0.2
+        if ds.train_test_split is not None:
+            test_size = max(0.01, min(0.99, ds.train_test_split / 100.0))
+        
+        # apply preprocessing to X
+        X_processed = pd.DataFrame(pre.fit_transform(X), columns=pre.get_feature_names_out())
+
+        X_train, X_test, y_train, y_test = train_test_split(X_processed, y, test_size=test_size, random_state=42)
+
+        processed_df = pd.DataFrame(pre.fit_transform(df))
+        processed_df.columns = pre.get_feature_names_out()
+
+        # calculate correlation matrix for numeric features
+        corr_matrix = processed_df.corr()
+        # for all nan values (e.g., no numeric features), fill with zeros
+        corr_matrix = corr_matrix.fillna(0)
+
+        result = {
+            'dataset_id': ds.id,
+            'dataset_name': ds.name,
+            'type': 'regression' if ds.regression else 'classification',
+            'metrics': {
+                'original_features': int(X.shape[1]),
+                'final_features': int(X_processed.shape[1]),
+                'missing_values_removed': 0,
+                'duplicates_removed': 0,
+            },
+            'correlation_matrix': {
+                'feature_names': corr_matrix.columns.tolist(),
+                'matrix': corr_matrix.to_numpy().tolist()
+            }
+        }
+
+        imb = _class_imbalance_info(y_test) if not ds.regression else None
+        if imb:
+            result['imbalance'] = imb
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"Unexpected error in dataset experiments: {str(e)}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
+
 @app.route('/api/models/<int:model_id>/experiments', methods=['GET'])
 @login_required
 def model_experiments(model_id):

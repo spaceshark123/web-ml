@@ -1,31 +1,38 @@
-"use client"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment, useRef } from "react"
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { Button } from "./ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Link, useSearchParams } from "react-router-dom"
+import { data, Link, useSearchParams } from "react-router-dom"
 import { API_BASE_URL } from "@/constants"
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar } from "recharts"
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, PieChart, Pie, Cell } from "recharts"
 import { Label } from "@/components/ui/label"
 import type { Dataset } from "./datasets-content"
 import type { Model } from "./models-content"
 
+const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042"];
+
 type CurvePoint = { fpr?: number; tpr?: number; precision?: number; recall?: number }
 interface ExperimentsResponse {
-	model_id: number
-	model_name: string
-	model_type: string
+	model_id?: number
+	model_name?: string
+	model_type?: string
+	dataset_id: number
+	dataset_name: string
 	type: 'classification' | 'regression'
-	metrics: Record<string, any> & {
+	metrics?: Record<string, any> & {
 		accuracy?: number; precision?: number; recall?: number; f1?: number; roc_auc?: number; pr_auc?: number;
 		mse?: number; mae?: number; r2?: number;
 		roc_curve?: CurvePoint[]
 		pr_curve?: CurvePoint[]
+		original_features: number
+		final_features: number
+		missing_values_removed: number
+		duplicates_removed: number
 	}
+	correlation_matrix?: { feature_names: string[]; matrix: number[][] }
 	confusion_matrix?: { labels: string[]; matrix: number[][] }
-	imbalance?: { minority_class_percentage: number; imbalance_ratio: number; is_imbalanced: boolean }
+	imbalance?: { minority_class_percentage: number; imbalance_ratio: number; is_imbalanced: boolean, class_distribution?: Record<string, number> }
 	shap?: { feature_importance: { feature: string; importance: number }[]; total_features?: number; error?: string }
 }
 
@@ -107,14 +114,14 @@ function PrTooltip({ active, payload, label }: any) {
 
 // Helper function to merge multiclass ROC curves into a single dataset
 // This enables synchronized tooltips across all curves at the same FPR
-function mergeRocCurves(rocCurvesOvr: Array<{class_label: string; curve: Array<{fpr: number; tpr: number}>}>) {
+function mergeRocCurves(rocCurvesOvr: Array<{ class_label: string; curve: Array<{ fpr: number; tpr: number }> }>) {
 	// Collect all unique FPR values from all curves
 	const fprSet = new Set<number>()
 	rocCurvesOvr.forEach(cls => {
 		cls.curve.forEach(point => fprSet.add(point.fpr))
 	})
 	const sortedFprs = Array.from(fprSet).sort((a, b) => a - b)
-	
+
 	// For each unique FPR, interpolate TPR for each class
 	return sortedFprs.map(fpr => {
 		const point: any = { fpr }
@@ -122,23 +129,23 @@ function mergeRocCurves(rocCurvesOvr: Array<{class_label: string; curve: Array<{
 			// Find or interpolate the TPR at this FPR
 			const curve = cls.curve
 			let tpr = 0
-			
+
 			// Find the two points that bracket this FPR
 			for (let i = 0; i < curve.length; i++) {
 				if (curve[i].fpr === fpr) {
 					tpr = curve[i].tpr
 					break
-				} else if (i > 0 && curve[i-1].fpr < fpr && curve[i].fpr > fpr) {
+				} else if (i > 0 && curve[i - 1].fpr < fpr && curve[i].fpr > fpr) {
 					// Linear interpolation between two points
-					const t = (fpr - curve[i-1].fpr) / (curve[i].fpr - curve[i-1].fpr)
-					tpr = curve[i-1].tpr + t * (curve[i].tpr - curve[i-1].tpr)
+					const t = (fpr - curve[i - 1].fpr) / (curve[i].fpr - curve[i - 1].fpr)
+					tpr = curve[i - 1].tpr + t * (curve[i].tpr - curve[i - 1].tpr)
 					break
 				} else if (i === curve.length - 1) {
 					// Use last point if beyond range
 					tpr = curve[i].tpr
 				}
 			}
-			
+
 			point[cls.class_label] = tpr
 		})
 		return point
@@ -146,7 +153,7 @@ function mergeRocCurves(rocCurvesOvr: Array<{class_label: string; curve: Array<{
 }
 
 // Helper to merge multiclass PR curves into a single dataset keyed by recall
-function mergePrCurves(prCurvesOvr: Array<{class_label: string; curve: Array<{recall: number; precision: number}>}>) {
+function mergePrCurves(prCurvesOvr: Array<{ class_label: string; curve: Array<{ recall: number; precision: number }> }>) {
 	const recallSet = new Set<number>()
 	prCurvesOvr.forEach(cls => {
 		cls.curve.forEach(pt => recallSet.add(pt.recall))
@@ -162,9 +169,9 @@ function mergePrCurves(prCurvesOvr: Array<{class_label: string; curve: Array<{re
 				if (curve[i].recall === recall) {
 					prec = curve[i].precision
 					break
-				} else if (i > 0 && curve[i-1].recall < recall && curve[i].recall > recall) {
-					const t = (recall - curve[i-1].recall) / (curve[i].recall - curve[i-1].recall)
-					prec = curve[i-1].precision + t * (curve[i].precision - curve[i-1].precision)
+				} else if (i > 0 && curve[i - 1].recall < recall && curve[i].recall > recall) {
+					const t = (recall - curve[i - 1].recall) / (curve[i].recall - curve[i - 1].recall)
+					prec = curve[i - 1].precision + t * (curve[i].precision - curve[i - 1].precision)
 					break
 				} else if (i === curve.length - 1) {
 					prec = curve[i].precision
@@ -176,6 +183,41 @@ function mergePrCurves(prCurvesOvr: Array<{class_label: string; curve: Array<{re
 	})
 }
 
+export default function ClassDistributionPie({ classDistribution }: { classDistribution: Record<string, number> }) {
+	// Convert dict → array and compute percentages
+	const total = Object.values(classDistribution).reduce((a, b) => a + b, 0);
+	const data = Object.entries(classDistribution).map(([classLabel, count]) => ({
+		class: classLabel,
+		count,
+		percent: ((count / total) * 100).toFixed(1), // one decimal place
+	}));
+
+	return (
+		<PieChart width={700} height={700}>
+			<Pie
+				data={data}
+				dataKey="count"
+				nameKey="class"
+				cx="50%"
+				cy="50%"
+				outerRadius={250}
+				label={({ class: classLabel, percent }) => `${classLabel} (${percent}%)`}
+				style={{ cursor: "pointer", outline: "none" }}
+			>
+				{data.map((entry, index) => (
+					<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+				))}
+			</Pie>
+			<Tooltip
+				formatter={(value, name, props) => {
+					const { payload } = props;
+					return [`${value} (${payload.percent}%)`, "Count"];
+				}}
+				labelFormatter={(label) => `Class: ${label}`}
+			/>
+		</PieChart>
+	);
+}
 
 export function ExperimentsContent() {
 	const [models, setModels] = useState<Model[]>([])
@@ -198,7 +240,7 @@ export function ExperimentsContent() {
 		// Load experiment history from localStorage on mount
 		const history = loadExperimentHistory()
 		setExperimentHistory(history)
-		
+
 		// Check if experiment ID is in URL query params (from dashboard link)
 		const experimentId = searchParams.get('id')
 		if (experimentId) {
@@ -216,6 +258,15 @@ export function ExperimentsContent() {
 		}
 	}, [])
 
+	const renderMetric = (label: string, val: any) => {
+		return (
+			<div key={label} className="grid grid-cols-3 gap-4 py-3 border-b border-gray-200 last:border-0">
+				<div className="text-sm font-medium text-gray-700">{label}</div>
+				<div className="text-sm text-gray-600">{typeof val === "number" && !Number.isInteger(val) ? val.toFixed(4) : val || "N/A"}</div>
+			</div>
+		)
+	}
+
 	const fetchDatasets = async () => {
 		try {
 			const response = await fetch(`${API_BASE_URL}/datasets`, {
@@ -224,7 +275,7 @@ export function ExperimentsContent() {
 			})
 			if (response.ok) {
 				const data = await response.json()
-				setDatasets(data.map((ds: any) => ({ id: ds.id, name: ds.name })))
+				setDatasets(data)
 			}
 		} catch (error) {
 			console.error("Failed to fetch datasets:", error)
@@ -250,26 +301,40 @@ export function ExperimentsContent() {
 		setExperimentData(null)
 		if (!selectedDataset) return
 		setLoading(true)
-		// Placeholder: dataset visualizations not yet implemented
-		setTimeout(() => setLoading(false), 800)
+
+		try {
+			const response = await fetch(`${API_BASE_URL}/datasets/${selectedDataset}/experiments`, {
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+			})
+			if (response.ok) {
+				const data = await response.json()
+				console.log("Dataset experiment data:", data)
+				setExperimentData(data)
+			}
+		} catch (error) {
+			console.error("Failed to visualize dataset:", error)
+		} finally {
+			setLoading(false)
+		}
 	}
 
 	const evaluateModel = async () => {
 		setExperimentData(null)
 		if (!selectedModel) return
-		
+
 		// Clear any existing polling interval
 		if (shapPollingId !== null) {
 			window.clearInterval(shapPollingId)
 			setShapPollingId(null)
 		}
 		setShapProgress(0)
-		
+
 		setLoading(true)
-		
+
 		// Capture the model ID we're evaluating to prevent stale closures
 		const modelForPolling = selectedModel
-		
+
 		try {
 			const res = await fetch(`${API_BASE_URL}/models/${selectedModel}/experiments?shap_async=1`, {
 				credentials: 'include',
@@ -285,7 +350,7 @@ export function ExperimentsContent() {
 						setLoading(false)
 						return
 					}
-				} catch {}
+				} catch { }
 				window.alert("Error: Model doesn't exist or has not trained")
 				setLoading(false)
 				return
@@ -295,15 +360,15 @@ export function ExperimentsContent() {
 			console.log('ROC curve data:', data.metrics?.roc_curve)
 			console.log('ROC curves OvR:', (data.metrics as any)?.roc_curves_ovr)
 			setExperimentData(data)
-			
+
 			// Save experiment to history
 			saveExperimentToHistory(data)
 			setExperimentHistory(loadExperimentHistory())
-			
+
 			// If SHAP is pending, start polling progress
 			if (data && (data as any).shap && (data as any).shap.status === 'pending') {
 				setShapProgress(0)
-				
+
 				// Begin polling every 1 second for smoother progress updates
 				const intervalId = window.setInterval(async () => {
 					// Stop polling if user switched to a different model
@@ -312,7 +377,7 @@ export function ExperimentsContent() {
 						setShapPollingId(null)
 						return
 					}
-					
+
 					try {
 						const r = await fetch(`${API_BASE_URL}/models/${modelForPolling}/experiments/shap`, {
 							credentials: 'include',
@@ -320,9 +385,9 @@ export function ExperimentsContent() {
 						})
 						const stat = await r.json()
 						console.log('SHAP polling response:', stat)
-						
+
 						if (typeof stat.progress === 'number') setShapProgress(stat.progress)
-						
+
 						if (stat.status === 'done' && stat.shap) {
 							console.log('SHAP computation complete, updating data:', stat.shap)
 							setExperimentData((prev) => {
@@ -361,7 +426,7 @@ export function ExperimentsContent() {
 			setLoading(false)
 		}
 	}
-	
+
 	// Cleanup polling on unmount
 	useEffect(() => {
 		return () => {
@@ -477,7 +542,7 @@ export function ExperimentsContent() {
 								</Button>
 							)}
 						</div>
-						
+
 						{/* Search */}
 						<input
 							type="text"
@@ -494,8 +559,8 @@ export function ExperimentsContent() {
 									if (!searchQuery.trim()) return true
 									const query = searchQuery.toLowerCase()
 									return (
-										exp.data.model_name.toLowerCase().includes(query) ||
-										exp.data.model_type.toLowerCase().includes(query) ||
+										exp.data.model_name?.toLowerCase().includes(query) ||
+										exp.data.model_type?.toLowerCase().includes(query) ||
 										exp.data.type.toLowerCase().includes(query)
 									)
 								})
@@ -553,328 +618,418 @@ export function ExperimentsContent() {
 				</div>
 
 				{/* Comparison Results */}
-								<div className="lg:col-span-3">
-										{experimentData ? (
-												<div className="space-y-6">
-														{/* Info Card */}
-														<Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-																<CardHeader>
-																		<CardTitle className="text-xl">{experimentData.model_name}</CardTitle>
-																		<CardDescription>{experimentData.model_type} • {experimentData.type === 'classification' ? 'Classification' : 'Regression'}</CardDescription>
-																</CardHeader>
-														</Card>
+				<div className="lg:col-span-3">
+					{experimentData && type === "model" ? (
+						<div className="space-y-6">
+							{/* Info Card */}
+							<Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+								<CardHeader>
+									<CardTitle className="text-xl">{experimentData.model_name}</CardTitle>
+									<CardDescription>{experimentData.model_type} • {experimentData.type === 'classification' ? 'Classification' : 'Regression'}</CardDescription>
+								</CardHeader>
+							</Card>
 
-														{/* Metrics Grid */}
-														{experimentData.type === 'classification' ? (
-															<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-																{['accuracy','precision','recall','f1','roc_auc','pr_auc'].map((k) => (
-																	experimentData.metrics[k] !== undefined && (
-																		<Card key={k} className="p-4">
-																			<CardTitle className="text-sm capitalize">{k.replace('_',' ').toUpperCase()}</CardTitle>
-																			<CardContent className="pt-2">
-																				<div className="text-2xl font-semibold whitespace-normal break-words break-all">{(k==='accuracy'||k==='precision'||k==='recall'||k==='f1'||k==='roc_auc'||k==='pr_auc') ? Number(experimentData.metrics[k]).toFixed(k==='roc_auc'||k==='pr_auc'?3:3) : experimentData.metrics[k]}</div>
-																			</CardContent>
-																		</Card>
-																	)
-																))}
-																{/* If multiclass APs are present but aggregate pr_auc isn't, show macro AP */}
-																{experimentData.metrics['pr_auc'] === undefined && Array.isArray((experimentData.metrics as any).pr_auc_ovr) && (experimentData.metrics as any).pr_auc_ovr.length > 0 && (
-																	(() => {
-																		const aps = ((experimentData.metrics as any).pr_auc_ovr as Array<{class_label: string; ap: number}>).map(x => x.ap)
-																		const macro = aps.reduce((a,b)=>a+b,0) / aps.length
-																		return (
-																			<Card className="p-4">
-																				<CardTitle className="text-sm">PR AUC (Macro OvR)</CardTitle>
-																				<CardContent className="pt-2">
-																					<div className="text-2xl font-semibold whitespace-normal break-words break-all">{macro.toFixed(3)}</div>
-																				</CardContent>
-																			</Card>
-																		)
-																	})()
-																)}
-															</div>
-														) : (
-																<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-																{['mse','rmse','mae','r2'].map((k) => (
-																	experimentData.metrics[k] !== undefined && (
-									<Card key={k} className="p-4">
-																				<CardTitle className="text-sm uppercase">{k}</CardTitle>
-																			<CardContent className="pt-2">
-										    <div className="text-2xl font-semibold whitespace-normal break-words break-all">{Number(experimentData.metrics[k]).toFixed(k==='r2'?3:4)}</div>
-																			</CardContent>
-																		</Card>
-																	)
-																))}
-															</div>
-														)}
-
-														{/* Curves */}
-														<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-															{/* Binary ROC */}
-															{experimentData.metrics.roc_curve && Array.isArray(experimentData.metrics.roc_curve) && experimentData.metrics.roc_curve.length > 0 && (
-																<Card>
-																	<CardHeader>
-																		<CardTitle className="text-lg">ROC Curve</CardTitle>
-																		<CardDescription>AUC: {experimentData.metrics.roc_auc?.toFixed(3)}</CardDescription>
-																	</CardHeader>
-																	<CardContent>
-																		<ResponsiveContainer width="100%" height={300}>
-																			<LineChart data={experimentData.metrics.roc_curve as any} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-																				<CartesianGrid strokeDasharray="3 3" />
-																				<XAxis dataKey="fpr" domain={[0,1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
-																				<YAxis domain={[0,1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
-																				<Tooltip content={({ active, payload, label }: any) => {
-																					if (!active || !payload || payload.length === 0) return null
-																					const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
-																					if (dataPoints.length === 0) return null
-																					const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
-																					return (
-																						<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
-																							<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
-																							{dataPoints.map((point: any, idx: number) => (
-																								<div key={idx} className="flex items-center gap-2">
-																									<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
-																									<span className="text-gray-600">{point.name}:</span>
-																									<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
-																								</div>
-																							))}
-																						</div>
-																					)
-																				}} />
-																				<Legend />
-																				{/* Baseline: random guessing diagonal */}
-																				<Line
-																					data={[{ fpr: 0, tpr: 0 }, { fpr: 1, tpr: 1 }]}
-																					type="linear"
-																					dataKey="tpr"
-																					stroke="#9ca3af"
-																					strokeDasharray="4 4"
-																					dot={false}
-																					name="Baseline"
-																					isAnimationActive={false}
-																				/>
-																				{/* ROC curve */}
-																				<Line
-																					type="monotone"
-																					dataKey="tpr"
-																					name="ROC"
-																					stroke="#2563eb"
-																					dot={false}
-																					strokeWidth={2}
-																					isAnimationActive={true}
-																					activeDot={true as any}
-																				/>
-																			</LineChart>
-																		</ResponsiveContainer>
-																	</CardContent>
-																</Card>
-															)}
-
-															{/* Multiclass ROC (OvR) overlay */}
-															{Array.isArray((experimentData.metrics as any).roc_curves_ovr) && (experimentData.metrics as any).roc_curves_ovr.length > 0 && (
-																(() => {
-																	const rocCurvesOvr = (experimentData.metrics as any).roc_curves_ovr as Array<{class_label: string; curve: any[]}>
-																	const mergedData = mergeRocCurves(rocCurvesOvr)
-																	const palette = ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#ea580c", "#0ea5e9", "#f59e0b", "#10b981"]
-																	
-																	return (
-																		<Card>
-																			<CardHeader>
-																				<CardTitle className="text-lg">ROC Curves (OvR)</CardTitle>
-																				<CardDescription>
-																					One-vs-Rest ROC curves for each class
-																				</CardDescription>
-																			</CardHeader>
-																			<CardContent>
-																				<ResponsiveContainer width="100%" height={300}>
-																					<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-																						<CartesianGrid strokeDasharray="3 3" />
-																						<XAxis dataKey="fpr" domain={[0,1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
-																						<YAxis domain={[0,1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
-																						<Tooltip content={({ active, payload, label }: any) => {
-																							if (!active || !payload || payload.length === 0) return null
-																							const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
-																							if (dataPoints.length === 0) return null
-																							const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
-																							return (
-																								<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
-																									<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
-																									{dataPoints.map((point: any, idx: number) => (
-																										<div key={idx} className="flex items-center gap-2">
-																											<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
-																											<span className="text-gray-600">{point.name}:</span>
-																											<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
-																										</div>
-																									))}
-																								</div>
-																							)
-																						}} />
-																						<Legend />
-																						{/* Baseline: random guessing (non-interactive) */}
-																						<Line
-																							dataKey="__baseline"
-																							data={mergedData.map(d => ({ ...d, __baseline: d.fpr }))}
-																							type="linear"
-																							stroke="#9ca3af"
-																							strokeDasharray="4 4"
-																							dot={false}
-																							name="Baseline"
-																							isAnimationActive={false}
-																							activeDot={false as any}
-																						/>
-																						{rocCurvesOvr.map((cls, idx) => {
-																							const color = palette[idx % palette.length]
-																							return (
-																								<Line
-																									key={`roc-${cls.class_label}`}
-																									type="monotone"
-																									dataKey={cls.class_label}
-																									name={cls.class_label}
-																									stroke={color}
-																									dot={false}
-																									strokeWidth={2}
-																								/>
-																							)
-																						})}
-																					</LineChart>
-																				</ResponsiveContainer>
-																			</CardContent>
-																		</Card>
-																	)
-																})()
-															)}
-
-															{experimentData.metrics.pr_curve && (
-																<Card>
-																	<CardHeader>
-																		<CardTitle className="text-lg">Precision-Recall Curve</CardTitle>
-																		<CardDescription>AP: {experimentData.metrics.pr_auc?.toFixed(3)}</CardDescription>
-																	</CardHeader>
-																	<CardContent>
-																		<ResponsiveContainer width="100%" height={300}>
-																			<LineChart data={experimentData.metrics.pr_curve as any} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-																				<CartesianGrid strokeDasharray="3 3" />
-																				<XAxis dataKey="recall" domain={[0,1]} type="number" label={{ value: "Recall", position: "insideBottomRight", offset: -5 }} />
-																				<YAxis domain={[0,1]} label={{ value: "Precision", angle: -90, position: "insideLeft" }} />
-																				<Tooltip />
-																				<Legend />
-																				<Line type="monotone" dataKey="precision" name="PR" stroke="#16a34a" dot={false} strokeWidth={2} />
-																			</LineChart>
-																		</ResponsiveContainer>
-																	</CardContent>
-																</Card>
-															)}
-
-															{/* Multiclass PR (OvR) overlay - moved up above Confusion Matrix */}
-															{Array.isArray((experimentData.metrics as any).pr_curves_ovr) && (experimentData.metrics as any).pr_curves_ovr.length > 0 && (
-																(() => {
-																	const prCurvesOvr = (experimentData.metrics as any).pr_curves_ovr as Array<{class_label: string; curve: any[]}>
-																	const mergedData = mergePrCurves(prCurvesOvr)
-																	const palette = ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#ea580c", "#0ea5e9", "#f59e0b", "#10b981"]
-																	return (
-																		<Card>
-																			<CardHeader>
-																				<CardTitle className="text-lg">Precision-Recall Curves (OvR)</CardTitle>
-																				<CardDescription>
-																					{(() => {
-																						const apList = ((experimentData.metrics as any).pr_auc_ovr || []) as Array<{class_label: string; ap: number}>
-																						if (Array.isArray(apList) && apList.length > 0) {
-																							const macro = apList.reduce((a, b) => a + (b.ap ?? 0), 0) / apList.length
-																							return (
-																								<div className="space-y-1">
-																									<div>Macro AP: {macro.toFixed(3)}</div>
-																									<div className="text-xs text-gray-600">
-																										APs: {apList.map((x) => `${x.class_label}=${(x.ap ?? 0).toFixed(3)}`).join(', ')}
-																									</div>
-																							</div>
-																						)
-																					}
-																					return 'One-vs-Rest PR curves for each class'
-																				})()}
-																			</CardDescription>
-																		</CardHeader>
-																		<CardContent>
-																			<ResponsiveContainer width="100%" height={300}>
-																				<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-																					<CartesianGrid strokeDasharray="3 3" />
-																					<XAxis dataKey="recall" domain={[0,1]} type="number" label={{ value: "Recall", position: "insideBottomRight", offset: -5 }} />
-																					<YAxis domain={[0,1]} label={{ value: "Precision", angle: -90, position: "insideLeft" }} />
-																					<Tooltip content={<PrTooltip />} />
-																					<Legend />
-																					{prCurvesOvr.map((cls, idx) => {
-																						const color = palette[idx % palette.length]
-																						return (
-																							<Line
-																								key={`pr-${cls.class_label}`}
-																								type="monotone"
-																								dataKey={cls.class_label}
-																								name={cls.class_label}
-																								stroke={color}
-																								dot={false}
-																								strokeWidth={2}
-																							/>
-																						)
-																					})}
-																				</LineChart>
-																			</ResponsiveContainer>
-																		</CardContent>
-																	</Card>
-																)
-																})()
-															)}
-														</div>
-
-														{/* Confusion Matrix */}
-														{experimentData.confusion_matrix && (
-															<Card>
-																<CardHeader>
-																	<CardTitle className="text-lg">Confusion Matrix</CardTitle>
-																	<CardDescription>Predicted vs Actual</CardDescription>
-																</CardHeader>
-																<CardContent>
-																	<ConfusionMatrix labels={experimentData.confusion_matrix.labels} matrix={experimentData.confusion_matrix.matrix} />
-																</CardContent>
-															</Card>
-														)}
-
-												{/* SHAP Feature Importance */}
-												{(experimentData as any)?.shap?.status === 'pending' && (
-													<Card>
-														<CardHeader>
-															<CardTitle className="text-lg">Feature Importance (SHAP)</CardTitle>
-															<CardDescription>Computing…</CardDescription>
-														</CardHeader>
-														<CardContent>
-															<div className="w-full h-3 bg-gray-200 rounded">
-																<div className="h-3 bg-purple-500 rounded" style={{ width: `${Math.min(100, Math.max(0, shapProgress))}%`, transition: 'width 0.5s ease' }} />
-															</div>
-															<p className="mt-2 text-xs text-gray-600">{Math.round(shapProgress)}% complete</p>
-														</CardContent>
+							{/* Metrics Grid */}
+							{experimentData.type === 'classification' ? (
+								<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+									{['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'pr_auc'].map((k) => (
+										experimentData.metrics?.[k] !== undefined && (
+											<Card key={k} className="p-4">
+												<CardTitle className="text-sm capitalize">{k.replace('_', ' ').toUpperCase()}</CardTitle>
+												<CardContent className="pt-2">
+													<div className="text-2xl font-semibold whitespace-normal break-words break-all">{(k === 'accuracy' || k === 'precision' || k === 'recall' || k === 'f1' || k === 'roc_auc' || k === 'pr_auc') ? Number(experimentData.metrics[k]).toFixed(k === 'roc_auc' || k === 'pr_auc' ? 3 : 3) : experimentData.metrics[k]}</div>
+												</CardContent>
+											</Card>
+										)
+									))}
+									{/* If multiclass APs are present but aggregate pr_auc isn't, show macro AP */}
+									{experimentData.metrics?.['pr_auc'] === undefined && Array.isArray((experimentData.metrics as any).pr_auc_ovr) && (experimentData.metrics as any).pr_auc_ovr.length > 0 && (
+										(() => {
+											const aps = ((experimentData.metrics as any).pr_auc_ovr as Array<{ class_label: string; ap: number }>).map(x => x.ap)
+											const macro = aps.reduce((a, b) => a + b, 0) / aps.length
+											return (
+												<Card className="p-4">
+													<CardTitle className="text-sm">PR AUC (Macro OvR)</CardTitle>
+													<CardContent className="pt-2">
+														<div className="text-2xl font-semibold whitespace-normal break-words break-all">{macro.toFixed(3)}</div>
+													</CardContent>
 												</Card>
-											)}
+											)
+										})()
+									)}
+								</div>
+							) : (
+								<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+									{['mse', 'rmse', 'mae', 'r2'].map((k) => (
+										experimentData.metrics?.[k] !== undefined && (
+											<Card key={k} className="p-4">
+												<CardTitle className="text-sm uppercase">{k}</CardTitle>
+												<CardContent className="pt-2">
+													<div className="text-2xl font-semibold whitespace-normal break-words break-all">{Number(experimentData.metrics[k]).toFixed(k === 'r2' ? 3 : 4)}</div>
+												</CardContent>
+											</Card>
+										)
+									))}
+								</div>
+							)}
 
-											{experimentData.shap && experimentData.shap.feature_importance && experimentData.shap.feature_importance.length > 0 && !(experimentData as any)?.shap?.status && (
-														<Card>
-															<CardHeader>
-																	<CardTitle className="text-lg">Feature Importance (SHAP)</CardTitle>
-																	<CardDescription>Mean |SHAP| values (top {Math.min(10, experimentData.shap.feature_importance.length)})</CardDescription>
-																</CardHeader>
-																<CardContent>
-																	<ResponsiveContainer width="100%" height={Math.min(10, experimentData.shap.feature_importance.length) * 30 + 60}>
-																		<BarChart data={[...experimentData.shap.feature_importance].slice(0,20).reverse()} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
-																			<CartesianGrid strokeDasharray="3 3" />
-																			<XAxis type="number" />
-																			<YAxis type="category" dataKey="feature" width={100} />
-																			<Tooltip />
-																			<Legend />
-																			<Bar dataKey="importance" name="Mean |SHAP|" fill="#8b5fbf" />
-																		</BarChart>
-																	</ResponsiveContainer>
-																</CardContent>
-															</Card>
-														)}
+							{/* Curves */}
+							<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+								{/* Binary ROC */}
+								{experimentData.metrics?.roc_curve && Array.isArray(experimentData.metrics.roc_curve) && experimentData.metrics.roc_curve.length > 0 && (
+									<Card>
+										<CardHeader>
+											<CardTitle className="text-lg">ROC Curve</CardTitle>
+											<CardDescription>AUC: {experimentData.metrics.roc_auc?.toFixed(3)}</CardDescription>
+										</CardHeader>
+										<CardContent>
+											<ResponsiveContainer width="100%" height={300}>
+												<LineChart data={experimentData.metrics.roc_curve as any} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+													<CartesianGrid strokeDasharray="3 3" />
+													<XAxis dataKey="fpr" domain={[0, 1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
+													<YAxis domain={[0, 1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
+													<Tooltip content={({ active, payload, label }: any) => {
+														if (!active || !payload || payload.length === 0) return null
+														const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
+														if (dataPoints.length === 0) return null
+														const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
+														return (
+															<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
+																<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
+																{dataPoints.map((point: any, idx: number) => (
+																	<div key={idx} className="flex items-center gap-2">
+																		<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
+																		<span className="text-gray-600">{point.name}:</span>
+																		<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
+																	</div>
+																))}
+															</div>
+														)
+													}} />
+													<Legend />
+													{/* Baseline: random guessing diagonal */}
+													<Line
+														data={[{ fpr: 0, tpr: 0 }, { fpr: 1, tpr: 1 }]}
+														type="linear"
+														dataKey="tpr"
+														stroke="#9ca3af"
+														strokeDasharray="4 4"
+														dot={false}
+														name="Baseline"
+														isAnimationActive={false}
+													/>
+													{/* ROC curve */}
+													<Line
+														type="monotone"
+														dataKey="tpr"
+														name="ROC"
+														stroke="#2563eb"
+														dot={false}
+														strokeWidth={2}
+														isAnimationActive={true}
+														activeDot={true as any}
+													/>
+												</LineChart>
+											</ResponsiveContainer>
+										</CardContent>
+									</Card>
+								)}
+
+								{/* Multiclass ROC (OvR) overlay */}
+								{Array.isArray((experimentData.metrics as any).roc_curves_ovr) && (experimentData.metrics as any).roc_curves_ovr.length > 0 && (
+									(() => {
+										const rocCurvesOvr = (experimentData.metrics as any).roc_curves_ovr as Array<{ class_label: string; curve: any[] }>
+										const mergedData = mergeRocCurves(rocCurvesOvr)
+										const palette = ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#ea580c", "#0ea5e9", "#f59e0b", "#10b981"]
+
+										return (
+											<Card>
+												<CardHeader>
+													<CardTitle className="text-lg">ROC Curves (OvR)</CardTitle>
+													<CardDescription>
+														One-vs-Rest ROC curves for each class
+													</CardDescription>
+												</CardHeader>
+												<CardContent>
+													<ResponsiveContainer width="100%" height={300}>
+														<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+															<CartesianGrid strokeDasharray="3 3" />
+															<XAxis dataKey="fpr" domain={[0, 1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
+															<YAxis domain={[0, 1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
+															<Tooltip content={({ active, payload, label }: any) => {
+																if (!active || !payload || payload.length === 0) return null
+																const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
+																if (dataPoints.length === 0) return null
+																const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
+																return (
+																	<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
+																		<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
+																		{dataPoints.map((point: any, idx: number) => (
+																			<div key={idx} className="flex items-center gap-2">
+																				<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
+																				<span className="text-gray-600">{point.name}:</span>
+																				<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
+																			</div>
+																		))}
+																	</div>
+																)
+															}} />
+															<Legend />
+															{/* Baseline: random guessing (non-interactive) */}
+															<Line
+																dataKey="__baseline"
+																data={mergedData.map(d => ({ ...d, __baseline: d.fpr }))}
+																type="linear"
+																stroke="#9ca3af"
+																strokeDasharray="4 4"
+																dot={false}
+																name="Baseline"
+																isAnimationActive={false}
+																activeDot={false as any}
+															/>
+															{rocCurvesOvr.map((cls, idx) => {
+																const color = palette[idx % palette.length]
+																return (
+																	<Line
+																		key={`roc-${cls.class_label}`}
+																		type="monotone"
+																		dataKey={cls.class_label}
+																		name={cls.class_label}
+																		stroke={color}
+																		dot={false}
+																		strokeWidth={2}
+																	/>
+																)
+															})}
+														</LineChart>
+													</ResponsiveContainer>
+												</CardContent>
+											</Card>
+										)
+									})()
+								)}
+
+								{experimentData.metrics?.pr_curve && (
+									<Card>
+										<CardHeader>
+											<CardTitle className="text-lg">Precision-Recall Curve</CardTitle>
+											<CardDescription>AP: {experimentData.metrics.pr_auc?.toFixed(3)}</CardDescription>
+										</CardHeader>
+										<CardContent>
+											<ResponsiveContainer width="100%" height={300}>
+												<LineChart data={experimentData.metrics.pr_curve as any} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+													<CartesianGrid strokeDasharray="3 3" />
+													<XAxis dataKey="recall" domain={[0, 1]} type="number" label={{ value: "Recall", position: "insideBottomRight", offset: -5 }} />
+													<YAxis domain={[0, 1]} label={{ value: "Precision", angle: -90, position: "insideLeft" }} />
+													<Tooltip />
+													<Legend />
+													<Line type="monotone" dataKey="precision" name="PR" stroke="#16a34a" dot={false} strokeWidth={2} />
+												</LineChart>
+											</ResponsiveContainer>
+										</CardContent>
+									</Card>
+								)}
+
+								{/* Multiclass PR (OvR) overlay - moved up above Confusion Matrix */}
+								{Array.isArray((experimentData.metrics as any).pr_curves_ovr) && (experimentData.metrics as any).pr_curves_ovr.length > 0 && (
+									(() => {
+										const prCurvesOvr = (experimentData.metrics as any).pr_curves_ovr as Array<{ class_label: string; curve: any[] }>
+										const mergedData = mergePrCurves(prCurvesOvr)
+										const palette = ["#2563eb", "#16a34a", "#dc2626", "#7c3aed", "#ea580c", "#0ea5e9", "#f59e0b", "#10b981"]
+										return (
+											<Card>
+												<CardHeader>
+													<CardTitle className="text-lg">Precision-Recall Curves (OvR)</CardTitle>
+													<CardDescription>
+														{(() => {
+															const apList = ((experimentData.metrics as any).pr_auc_ovr || []) as Array<{ class_label: string; ap: number }>
+															if (Array.isArray(apList) && apList.length > 0) {
+																const macro = apList.reduce((a, b) => a + (b.ap ?? 0), 0) / apList.length
+																return (
+																	<div className="space-y-1">
+																		<div>Macro AP: {macro.toFixed(3)}</div>
+																		<div className="text-xs text-gray-600">
+																			APs: {apList.map((x) => `${x.class_label}=${(x.ap ?? 0).toFixed(3)}`).join(', ')}
+																		</div>
+																	</div>
+																)
+															}
+															return 'One-vs-Rest PR curves for each class'
+														})()}
+													</CardDescription>
+												</CardHeader>
+												<CardContent>
+													<ResponsiveContainer width="100%" height={300}>
+														<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+															<CartesianGrid strokeDasharray="3 3" />
+															<XAxis dataKey="recall" domain={[0, 1]} type="number" label={{ value: "Recall", position: "insideBottomRight", offset: -5 }} />
+															<YAxis domain={[0, 1]} label={{ value: "Precision", angle: -90, position: "insideLeft" }} />
+															<Tooltip content={<PrTooltip />} />
+															<Legend />
+															{prCurvesOvr.map((cls, idx) => {
+																const color = palette[idx % palette.length]
+																return (
+																	<Line
+																		key={`pr-${cls.class_label}`}
+																		type="monotone"
+																		dataKey={cls.class_label}
+																		name={cls.class_label}
+																		stroke={color}
+																		dot={false}
+																		strokeWidth={2}
+																	/>
+																)
+															})}
+														</LineChart>
+													</ResponsiveContainer>
+												</CardContent>
+											</Card>
+										)
+									})()
+								)}
+							</div>
+
+							{/* Confusion Matrix */}
+							{experimentData.confusion_matrix && (
+								<Card>
+									<CardHeader>
+										<CardTitle className="text-lg">Confusion Matrix</CardTitle>
+										<CardDescription>Predicted vs Actual</CardDescription>
+									</CardHeader>
+									<CardContent>
+										<ConfusionMatrix labels={experimentData.confusion_matrix.labels} matrix={experimentData.confusion_matrix.matrix} />
+									</CardContent>
+								</Card>
+							)}
+
+							{/* SHAP Feature Importance */}
+							{(experimentData as any)?.shap?.status === 'pending' && (
+								<Card>
+									<CardHeader>
+										<CardTitle className="text-lg">Feature Importance (SHAP)</CardTitle>
+										<CardDescription>Computing…</CardDescription>
+									</CardHeader>
+									<CardContent>
+										<div className="w-full h-3 bg-gray-200 rounded">
+											<div className="h-3 bg-purple-500 rounded" style={{ width: `${Math.min(100, Math.max(0, shapProgress))}%`, transition: 'width 0.5s ease' }} />
+										</div>
+										<p className="mt-2 text-xs text-gray-600">{Math.round(shapProgress)}% complete</p>
+									</CardContent>
+								</Card>
+							)}
+
+							{experimentData.shap && experimentData.shap.feature_importance && experimentData.shap.feature_importance.length > 0 && !(experimentData as any)?.shap?.status && (
+								<Card>
+									<CardHeader>
+										<CardTitle className="text-lg">Feature Importance (SHAP)</CardTitle>
+										<CardDescription>Mean |SHAP| values (top {Math.min(10, experimentData.shap.feature_importance.length)})</CardDescription>
+									</CardHeader>
+									<CardContent>
+										<ResponsiveContainer width="100%" height={Math.min(10, experimentData.shap.feature_importance.length) * 30 + 60}>
+											<BarChart data={[...experimentData.shap.feature_importance].slice(0, 20).reverse()} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
+												<CartesianGrid strokeDasharray="3 3" />
+												<XAxis type="number" />
+												<YAxis type="category" dataKey="feature" width={100} />
+												<Tooltip />
+												<Legend />
+												<Bar dataKey="importance" name="Mean |SHAP|" fill="#8b5fbf" />
+											</BarChart>
+										</ResponsiveContainer>
+									</CardContent>
+								</Card>
+							)}
+						</div>
+					) : experimentData && type === "dataset" ? (
+						<div className="space-y-6">
+							{/* Info Card */}
+							<Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+								<CardHeader>
+									<CardTitle className="text-xl">{experimentData.dataset_name}</CardTitle>
+									<CardDescription>Dataset Visualization</CardDescription>
+								</CardHeader>
+							</Card>
+
+							{/* General Metadata */}
+							<Card>
+								<CardHeader>
+									<CardTitle className="text-lg">Dataset Information</CardTitle>
+								</CardHeader>
+								<CardContent>
+									<div className="grid grid-cols-1 gap-4">
+										{renderMetric("Task", experimentData.type)}
+										{renderMetric("Number of Samples", datasets.find(ds => ds.id === experimentData.dataset_id)?.rows)}
+										{renderMetric("Number of Features", datasets.find(ds => ds.id === experimentData.dataset_id)?.features)}
+										{renderMetric("Input Features", datasets.find(ds => ds.id === experimentData.dataset_id)?.input_features?.split(",")?.join(', '))}
+										{renderMetric("Target Variable", datasets.find(ds => ds.id === experimentData.dataset_id)?.target_feature)}
+									</div>
+								</CardContent>
+							</Card>
+
+							{ /* Preprocessing */}
+							<Card>
+								<CardHeader>
+									<CardTitle className="text-lg">Preprocessing</CardTitle>
+								</CardHeader>
+								<CardContent>
+									<div className="grid grid-cols-1 gap-4">
+										{renderMetric("Missing Removed", experimentData.metrics?.missing_values_handled ? 'Yes - ' + experimentData.metrics?.missing_values_handled : 'No')}
+										{renderMetric("Duplicates Removed", experimentData.metrics?.duplicates_removed ? 'Yes - ' + experimentData.metrics?.duplicates_removed : 'No')}
+										{experimentData.metrics?.original_features !== experimentData.metrics?.final_features &&
+											<>
+												<div className="mt-4 font-medium text-gray-900">Feature Changes (one-hot encoded):</div>
+												<div className="grid grid-cols-1 gap-4">
+													{renderMetric("Original Features", experimentData.metrics?.original_features)}
+													{renderMetric("Final Features", experimentData.metrics?.final_features)}
 												</div>
-										) : (
+											</>
+										}
+										{experimentData.imbalance && (
+											<div className="mt-6 pt-6 border-t border-gray-200 bg-yellow-50 p-4 rounded">
+												<h4 className="font-medium text-gray-700 mb-2">Class Imbalance Detected</h4>
+												<div className="text-sm space-y-1">
+													<p>
+														<span className="text-gray-600">Imbalance Ratio:</span>
+														<span className="ml-2 font-medium">
+															{(experimentData.imbalance.imbalance_ratio * 100).toFixed(1)}%
+														</span>
+													</p>
+													<p>
+														<span className="text-gray-600">Minority Class:</span>
+														<span className="ml-2 font-medium">
+															{experimentData.imbalance.minority_class_percentage.toFixed(1)}%
+														</span>
+													</p>
+												</div>
+											</div>
+										)}
+										{ /* Pie chart of class distribution */}
+										{experimentData.imbalance && (
+											<Card className="mt-6">
+												<CardHeader>
+													<CardTitle className="text-lg">Class Distribution</CardTitle>
+												</CardHeader>
+												<CardContent>
+													<ClassDistributionPie classDistribution={experimentData.imbalance.class_distribution ?? {}} />
+												</CardContent>
+											</Card>
+										)}
+
+										{ /* correlation matrix */}
+										{experimentData.correlation_matrix && (
+											<Card className="mt-6">
+												<CardHeader>
+													<CardTitle className="text-lg">Feature Correlation</CardTitle>
+												</CardHeader>
+												<CardContent>
+													<CorrelationMatrix labels={experimentData.correlation_matrix.feature_names} matrix={experimentData.correlation_matrix.matrix} />
+												</CardContent>
+											</Card>
+										)}
+									</div>
+								</CardContent>
+							</Card>
+						</div>
+					) : (
 						<Card className="p-12 text-center">
 							<p className="text-gray-500">Select a model or dataset to visualize</p>
 						</Card>
@@ -921,4 +1076,169 @@ function ConfusionMatrix({ labels, matrix }: { labels: string[]; matrix: number[
 			</div>
 		</div>
 	)
+}
+
+// correlation matrix should be similar to confusion matrix but it should have a color scale from blue (negative) to white (zero) to red (positive) and auto scale down cells for large matrices to take the same space
+function CorrelationMatrix({
+  labels,
+  matrix,
+}: {
+  labels: string[];
+  matrix: number[][];
+}) {
+  const size = labels.length;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const cellSize = Math.min(80, 600 / size);
+  const labelWidth = cellSize + 40;
+  const displayText = cellSize >= 25;
+  const [hoverInfo, setHoverInfo] = useState<{
+    i: number;
+    j: number;
+    val: number;
+  } | null>(null);
+
+  // draw the heatmap onto canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const w = cellSize * size;
+    const h = cellSize * size;
+    canvas.width = w;
+    canvas.height = h;
+
+    for (let i = 0; i < size; i++) {
+      for (let j = 0; j < size; j++) {
+        const val = matrix[i][j];
+        let r = 255,
+          g = 255,
+          b = 255,
+          a = 1;
+
+        if (val > 0) {
+          const intensity = Math.min(val, 1);
+          r = 220;
+          g = 38;
+          b = 38;
+          a = 0.15 + 0.65 * intensity;
+        } else if (val < 0) {
+          const intensity = Math.min(-val, 1);
+          r = 37;
+          g = 99;
+          b = 235;
+          a = 0.15 + 0.65 * intensity;
+        }
+
+        ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+        ctx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
+
+        if (displayText) {
+          ctx.fillStyle = Math.abs(val) > 0.5 ? "white" : "#111827";
+          ctx.font = `${Math.min(14, cellSize / 5 + 4)}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(
+            val.toFixed(2),
+            j * cellSize + cellSize / 2,
+            i * cellSize + cellSize / 2
+          );
+        }
+      }
+    }
+  }, [matrix, size, cellSize, displayText]);
+
+  // Handle hover tooltips
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const i = Math.floor(y / cellSize);
+    const j = Math.floor(x / cellSize);
+    if (i >= 0 && i < size && j >= 0 && j < size) {
+      setHoverInfo({ i, j, val: matrix[i][j] });
+    } else {
+      setHoverInfo(null);
+    }
+  };
+
+  return (
+    <div className="overflow-auto max-w-full relative">
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: `${labelWidth}px ${cellSize * size}px`,
+        }}
+      >
+        {/* Labels column */}
+        <div>
+          <div style={{ height: cellSize }}></div>
+          {labels.map((l, i) =>
+            displayText ? (
+              <div
+                key={i}
+                className="text-gray-600 truncate"
+                style={{
+                  height: cellSize,
+                  lineHeight: `${cellSize}px`,
+                  fontSize: Math.min(14, cellSize / 5 + 4),
+                  textAlign: "left",
+                }}
+              >
+                {l}
+              </div>
+            ) : (
+              <div key={i} style={{ height: cellSize }}></div>
+            )
+          )}
+        </div>
+
+        {/* Heatmap */}
+        <div>
+          {/* Header labels */}
+          <div className="flex">
+            {labels.map((l, i) =>
+              displayText ? (
+                <div
+                  key={i}
+                  className="text-gray-600 text-center truncate"
+                  style={{
+                    width: cellSize,
+                    fontSize: Math.min(14, cellSize / 5 + 4),
+                  }}
+                >
+                  {l}
+                </div>
+              ) : (
+                <div key={i} style={{ width: cellSize }}></div>
+              )
+            )}
+          </div>
+          <canvas
+            ref={canvasRef}
+            width={cellSize * size}
+            height={cellSize * size}
+            style={{ cursor: "crosshair" }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setHoverInfo(null)}
+          />
+        </div>
+      </div>
+
+      {hoverInfo && (
+        <div
+          className="absolute bg-gray-800 text-white text-xs px-2 py-1 rounded pointer-events-none"
+          style={{
+            top: hoverInfo.i * cellSize + cellSize / 2,
+            left: hoverInfo.j * cellSize + labelWidth + cellSize / 2,
+            transform: "translate(-50%, -100%)",
+          }}
+        >
+          {`${labels[hoverInfo.i]} × ${labels[hoverInfo.j]} = ${hoverInfo.val.toFixed(3)}`}
+        </div>
+      )}
+    </div>
+  );
 }
