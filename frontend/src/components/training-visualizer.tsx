@@ -103,28 +103,28 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
   useEffect(() => {
     const lossContainer = lossContainerRef.current
     const metricContainer = metricContainerRef.current
-    
+
     const handleWheel = (e: WheelEvent, container: HTMLDivElement) => {
       if (isTraining) return
       if (!xDomain || !container) return
-      
+
       e.preventDefault()
       e.stopPropagation()
-      
+
       const rect = container.getBoundingClientRect()
       const width = rect.width
       const mouseX = e.clientX - rect.left
       const [d0, d1] = xDomain
       const span = d1 - d0
       const anchor = d0 + (mouseX / Math.max(1, width)) * span
-      
+
       // Zoom factor: deltaY > 0 => zoom out, < 0 => zoom in
       const zoom = Math.exp(e.deltaY * 0.001)
       let newMin = anchor - (anchor - d0) * zoom
       let newMax = anchor + (d1 - anchor) * zoom
       const clamped = clampDomain([newMin, newMax])
       setXDomain(clamped)
-      
+
       // Update Y domains after zoom
       const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
       const lossYBounds = getYDataBounds('loss', visible)
@@ -134,17 +134,17 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
         setMetricYDomain([metricYBounds.min, metricYBounds.max])
       }
     }
-    
+
     const lossWheelHandler = (e: WheelEvent) => lossContainer && handleWheel(e, lossContainer)
     const metricWheelHandler = (e: WheelEvent) => metricContainer && handleWheel(e, metricContainer)
-    
+
     if (lossContainer) {
       lossContainer.addEventListener('wheel', lossWheelHandler, { passive: false })
     }
     if (metricContainer) {
       metricContainer.addEventListener('wheel', metricWheelHandler, { passive: false })
     }
-    
+
     return () => {
       if (lossContainer) {
         lossContainer.removeEventListener('wheel', lossWheelHandler)
@@ -158,25 +158,34 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
   // Initialize and auto-extend domain while training so X-axis labels advance each epoch
   useEffect(() => {
     if (metrics.length === 0) {
-      setXDomain(null)
-      setLossYDomain(null)
-      setMetricYDomain(null)
+      // only update when needed
+      if (xDomain !== null) setXDomain(null)
+      if (lossYDomain !== null) setLossYDomain(null)
+      if (metricYDomain !== null) setMetricYDomain(null)
       return
     }
+
     const { min, max } = getDataBounds()
+    const newDomain: [number, number] = [min, max]
+    const prev = xDomainRef.current
+
+    // Only update xDomain when numeric bounds actually change to avoid spurious state updates
     if (isTraining) {
-      // While training, always follow the data bounds so new epochs are visible
-      setXDomain([min, max])
-    } else if (!xDomain) {
-      setXDomain([min, max])
+      if (!prev || prev[0] !== newDomain[0] || prev[1] !== newDomain[1]) {
+        setXDomain(newDomain)
+      }
     } else {
-      // Ensure current domain is within data bounds; if invalid, reset
-      const clampedMin = Math.max(xDomain[0], min)
-      const clampedMax = Math.min(xDomain[1], max)
-      if (clampedMax - clampedMin <= 0) {
-        setXDomain([min, max])
+      if (!prev) {
+        setXDomain(newDomain)
+      } else {
+        const clampedMin = Math.max(prev[0], min)
+        const clampedMax = Math.min(prev[1], max)
+        if (clampedMax - clampedMin <= 0 || clampedMin !== prev[0] || clampedMax !== prev[1]) {
+          setXDomain(newDomain)
+        }
       }
     }
+
     // Update Y domains based on visible data
     const visible = getVisibleMetrics()
     const lossYBounds = getYDataBounds('loss', visible)
@@ -185,8 +194,8 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       const metricYBounds = getYDataBounds('metric', visible)
       setMetricYDomain([metricYBounds.min, metricYBounds.max])
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metrics, xDomain, isTraining])
+    // dependencies: only metrics and isTraining (xDomain compared via ref)
+  }, [metrics, isTraining])
 
   const clampDomain = (domain: [number, number]): [number, number] => {
     const { min, max } = getDataBounds()
@@ -209,17 +218,17 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
   const makeMouseDownHandler = (container: React.RefObject<HTMLDivElement | null>): React.MouseEventHandler<HTMLDivElement> => (e) => {
     if (isTraining) return
     if (!container.current) return
-    
+
     // Cancel any ongoing momentum animation
     if (momentumAnimationRef.current !== null) {
       cancelAnimationFrame(momentumAnimationRef.current)
       momentumAnimationRef.current = null
     }
-    
+
     // Use the ref to get the most current domain value (in case momentum just updated it)
     const currentDomain = xDomainRef.current
     if (!currentDomain) return
-    
+
     isPanningRef.current = true
     const rect = container.current.getBoundingClientRect()
     panStartRef.current = { x: e.clientX, domain: currentDomain, width: rect.width }
@@ -233,18 +242,18 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
   const handleMouseMove: React.MouseEventHandler<HTMLDivElement> = (e) => {
     if (isTraining) return
     if (!isPanningRef.current || !panStartRef.current) return
-    
+
     const now = Date.now()
     const dt = now - lastMoveTimeRef.current
-    
+
     if (dt > 0) {
       const dx = e.clientX - lastMoveXRef.current
       velocityRef.current = dx / dt // pixels per millisecond
     }
-    
+
     lastMoveTimeRef.current = now
     lastMoveXRef.current = e.clientX
-    
+
     const width = panStartRef.current.width || 1
     const dx = e.clientX - panStartRef.current.x
     const [s0, s1] = panStartRef.current.domain
@@ -253,7 +262,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     const newDomain: [number, number] = [s0 - deltaEpoch, s1 - deltaEpoch]
     const clamped = clampDomain(newDomain)
     setXDomain(clamped)
-    
+
     // Update Y domains during pan
     const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
     const lossYBounds = getYDataBounds('loss', visible)
@@ -280,19 +289,19 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       momentumAnimationRef.current = null
       return
     }
-    
+
     const { min, max } = getDataBounds()
     const [d0, d1] = currentDomain
     const span = d1 - d0
-    
+
     // Apply velocity (convert from pixels/ms to epochs, assuming same width as last pan)
     const width = panStartRef.current?.width || 1
     // Reduce momentum scale for a gentler glide
     const deltaEpoch = -(velocityRef.current * 0.5) * (span / width) // was 16
-    
+
     let newMin = d0 + deltaEpoch
     let newMax = d1 + deltaEpoch
-    
+
     // Clamp to bounds
     if (newMin < min) {
       newMin = min
@@ -304,10 +313,10 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       newMin = max - span
       velocityRef.current = 0
     }
-    
+
     const clamped = clampDomain([newMin, newMax])
     setXDomain(clamped)
-    
+
     // Update Y domains during momentum
     const visible = metrics.filter(m => m.epoch >= clamped[0] && m.epoch <= clamped[1])
     const lossYBounds = getYDataBounds('loss', visible)
@@ -316,10 +325,10 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       const metricYBounds = getYDataBounds('metric', visible)
       setMetricYDomain([metricYBounds.min, metricYBounds.max])
     }
-    
+
     // Apply stronger friction to shorten momentum
     velocityRef.current *= 0.5 // was 0.95
-    
+
     // Continue animation
     momentumAnimationRef.current = requestAnimationFrame(applyMomentum)
   }
@@ -328,7 +337,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     // Reset cursors on both containers
     if (lossContainerRef.current) lossContainerRef.current.style.cursor = 'default'
     if (metricContainerRef.current) metricContainerRef.current.style.cursor = 'default'
-    
+
     // Recalculate Y domains at the end of the drag based on the final domain
     const currentDomain = xDomainRef.current
     if (currentDomain) {
@@ -340,12 +349,12 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
         setMetricYDomain([metricYBoundsEnd.min, metricYBoundsEnd.max])
       }
     }
-    
+
     if (isPanningRef.current && Math.abs(velocityRef.current) > 0.1) {
       // Start momentum animation
       momentumAnimationRef.current = requestAnimationFrame(applyMomentum)
     }
-    
+
     isPanningRef.current = false
     panStartRef.current = null
   }
@@ -365,10 +374,10 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       momentumAnimationRef.current = null
     }
     velocityRef.current = 0
-    
+
     const { min, max } = getDataBounds()
     setXDomain([min, max])
-    
+
     // Reset Y domains to full data range
     const lossYBounds = getYDataBounds('loss', metrics)
     setLossYDomain([lossYBounds.min, lossYBounds.max])
@@ -395,32 +404,32 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     socket.on('connect', () => {
       setConnectionStatus("connected")
       console.log("[TrainingVisualizer] Socket connected successfully")
-      
+
       // No need to manually pause here - backend will handle paused state for early-stopped models
       // and will send training_paused event if needed
     })
 
     socket.on('training_metrics', (data: any) => {
       console.log("[TrainingVisualizer] Received training_metrics:", data)
-      
+
       // Update regression flag from backend if provided
       if (data.regression !== undefined) {
         setIsRegression(data.regression)
       }
-      
+
       setMetrics((prev) => {
         const updated = [...prev]
         const existingIdx = updated.findIndex((m) => m.epoch === data.epoch)
-        
+
         // Normalize the metric field - backend may send 'metric', 'accuracy', or 'r2_score'
         const metricValue = data.metric !== undefined ? data.metric : (data.regression ? data.r2_score : data.accuracy)
-        
+
         const newMetric = {
           epoch: data.epoch,
           loss: data.loss,
           metric: metricValue
         }
-        
+
         if (existingIdx >= 0) {
           // Replace the existing entry completely
           updated[existingIdx] = newMetric
@@ -521,10 +530,10 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
             </div>
             <div
               className={`px-3 py-1 rounded text-xs font-medium ${connectionStatus === "connected"
-                  ? "bg-green-100 text-green-800"
-                  : connectionStatus === "connecting"
-                    ? "bg-yellow-100 text-yellow-800"
-                    : "bg-red-100 text-red-800"
+                ? "bg-green-100 text-green-800"
+                : connectionStatus === "connecting"
+                  ? "bg-yellow-100 text-yellow-800"
+                  : "bg-red-100 text-red-800"
                 }`}
             >
               {connectionStatus === "connected"
@@ -610,8 +619,8 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                       domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
                       label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
                     />
-                    <YAxis 
-                      label={{ value: "Loss", angle: -90, position: "left"}}
+                    <YAxis
+                      label={{ value: "Loss", angle: -90, position: "left" }}
                       domain={lossYDomain ? [lossYDomain[0], lossYDomain[1]] : ['auto', 'auto']}
                       tickFormatter={(v) => Number(v).toFixed(4)}
                     />
@@ -670,7 +679,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                         domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
                         label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
                       />
-                      <YAxis 
+                      <YAxis
                         label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "left" }}
                         domain={metricYDomain ? [metricYDomain[0], metricYDomain[1]] : ['auto', 'auto']}
                         tickFormatter={(v) => isRegression ? Number(v).toFixed(4) : `${(Number(v) * 100).toFixed(2)}%`}
