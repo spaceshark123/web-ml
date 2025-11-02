@@ -576,7 +576,21 @@ class ModelWrapper:
             if 'hidden_layer_sizes' in mlp_params and isinstance(mlp_params['hidden_layer_sizes'], list):
                 mlp_params['hidden_layer_sizes'] = tuple(mlp_params['hidden_layer_sizes'])
             if regression:
-                return MLPRegressor(**mlp_params)
+                # Wrap MLPRegressor in a preprocessing pipeline for robust handling of mixed types
+                num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+                cat_pipe = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ])
+                pre = ColumnTransformer(
+                    transformers=[
+                        ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                        ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                    ],
+                    remainder='drop'
+                )
+                base = MLPRegressor(**mlp_params)
+                return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
             base = MLPClassifier(**mlp_params)
             pre = ColumnTransformer(
                 transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
@@ -975,17 +989,7 @@ def get_dataset_columns(dataset_id):
         return jsonify({'error': 'Forbidden'}), 403
 
     try:
-        ext = os.path.splitext(ds.name)[1].lower()
-        if ext == '.csv':
-            df = pd.read_csv(ds.file_path)
-        elif ext == '.txt':
-            df = pd.read_csv(ds.file_path, sep='\t')
-        elif ext == '.xlsx':
-            import openpyxl
-            df = pd.read_excel(ds.file_path, engine='openpyxl')
-        else:
-            return jsonify({'error': 'Unsupported file format'}), 400
-
+        df = read_dataset_file(ds.file_path)
         return jsonify({'columns': df.columns.tolist()})
     except Exception as e:
         return jsonify({'error': f'Failed to read dataset: {str(e)}'}), 500
@@ -1096,22 +1100,21 @@ def list_models():
 
 def _load_dataset_for_model(m_entry: ModelEntry):
     ds = Dataset.query.get_or_404(m_entry.dataset_id)
-    ext = os.path.splitext(ds.name)[1].lower()
-    if ext == '.csv':
-        df = pd.read_csv(ds.file_path)
-    elif ext == '.txt':
-        df = pd.read_csv(ds.file_path, sep='\t')
-    elif ext == '.xlsx':
-        import openpyxl
-        df = pd.read_excel(ds.file_path, engine='openpyxl')
-    else:
-        raise ValueError(f'Unsupported dataset format: {ext}')
-    df.dropna(inplace=True)
+    # Centralized, encoding-robust read
+    df = read_dataset_file(ds.file_path)
+    # Coerce numeric-like strings (currency, percents, commas) to numeric
+    df = coerce_numeric_like(df)
+    # Select features/target
     if ds.target_feature and ds.target_feature in df.columns:
         y = df[ds.target_feature]
         X = df[ds.input_features.split(',')] if ds.input_features else df.drop(columns=[ds.target_feature])
     else:
         X, y = df.iloc[:, :-1], df.iloc[:, -1]
+    # Drop rows with missing target only; let pipelines impute X
+    if hasattr(y, 'notna'):
+        mask = y.notna()
+        X = X.loc[mask]
+        y = y.loc[mask]
     # compute split
     test_size = 0.2
     if ds.train_test_split is not None:
@@ -1886,6 +1889,45 @@ def read_dataset_file(file_path: str):
             raise ValueError(f'Unsupported file format: {ext}')
     except Exception as e:
         raise ValueError(f'Failed to read dataset: {str(e)}')
+
+def coerce_numeric_like(df: pd.DataFrame) -> pd.DataFrame:
+    """Best-effort conversion of numeric-looking string columns to numbers.
+    - Strips currency symbols ($), thousand separators (comma), percent signs
+    - Converts parentheses to negatives, e.g., (123) -> -123
+    - Converts to float when at least ~60% of non-empty values are numeric-like
+    - If majority had percent signs, divides by 100
+    """
+    try:
+        out = df.copy()
+        for col in out.columns:
+            s = out[col]
+            # Only attempt on object/string-like columns
+            if not (pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s)):
+                continue
+            try:
+                s_str = s.astype(str).str.strip()
+                if s_str.empty:
+                    continue
+                pct_mask = s_str.str.contains('%', regex=False, na=False)
+                # Normalize: remove $ and commas, remove %, convert (x) to -x
+                cleaned = s_str.str.replace(r'[\$,]', '', regex=True)
+                cleaned = cleaned.str.replace('%', '', regex=False)
+                cleaned = cleaned.str.replace(r'^\((.*)\)$', r'-\1', regex=True)
+                # Try conversion
+                as_num = pd.to_numeric(cleaned, errors='coerce')
+                # Heuristic: convert if at least 60% become numbers (ignoring NaNs)
+                conv_ratio = as_num.notna().mean()
+                if conv_ratio >= 0.60:
+                    # If majority values had percent, scale down
+                    if pct_mask.mean() >= 0.60:
+                        as_num = as_num / 100.0
+                    out[col] = as_num
+            except Exception:
+                # Best-effort; leave column as-is on failure
+                continue
+        return out
+    except Exception:
+        return df
     
 @app.route('/api/datasets/<int:dataset_id>/preprocess', methods=['POST', 'OPTIONS'])
 @login_required
@@ -2004,17 +2046,8 @@ def train(model_id):
 
     # read dataset and train server-side
     try:
-        ext = os.path.splitext(ds.name)[1].lower()
-        if ext == '.csv':
-            df = pd.read_csv(ds.file_path)
-        elif ext == '.txt':
-            df = pd.read_csv(ds.file_path, sep='\t')
-        elif ext == '.xlsx':
-            import openpyxl
-            df = pd.read_excel(ds.file_path, engine='openpyxl')
-        else:
-            print(f"Error: Unsupported dataset format '{ext}' for training")
-            return jsonify({'error': 'Unsupported dataset format for training'}), 400
+        df = read_dataset_file(ds.file_path)
+        df = coerce_numeric_like(df)
     except Exception as e:
         print(f"Error reading dataset for training: {str(e)}")
         return jsonify({'error': f'Could not read dataset: {e}'}), 500
@@ -2023,8 +2056,6 @@ def train(model_id):
         print(f"Error: Dataset must have at least 2 columns (features + target)")
         return jsonify({'error': 'Dataset must have at least 2 columns (features + target)'}), 400
     
-    df.dropna(inplace=True)
-
     if ds.target_feature and ds.target_feature in df.columns:
         # Use the configured target feature
         y = df[ds.target_feature]
@@ -2032,6 +2063,11 @@ def train(model_id):
     else:
         # Fallback to last column as target
         X, y = df.iloc[:, :-1], df.iloc[:, -1]
+    # Drop rows with missing targets only; let imputers handle feature NaNs
+    if hasattr(y, 'notna'):
+        mask = y.notna()
+        X = X.loc[mask]
+        y = y.loc[mask]
     
     # Convert percentage (e.g., 20) to decimal (0.20) for sklearn
     test_size = 0.2  # default fallback
@@ -2109,29 +2145,27 @@ def handle_training(data):
         
         print(f"[WebSocket] Found dataset: {ds.name}")
         
-        # Read dataset
-        ext = os.path.splitext(ds.name)[1].lower()
-        if ext == '.csv':
-            df = pd.read_csv(ds.file_path)
-        elif ext == '.txt':
-            df = pd.read_csv(ds.file_path, sep='\t')
-        elif ext == '.xlsx':
-            import openpyxl
-            df = pd.read_excel(ds.file_path, engine='openpyxl')
-        else:
-            print(f"[WebSocket] Error: Unsupported format {ext}")
-            emit('training_error', {'message': 'Unsupported dataset format'})
+        # Read dataset (centralized, robust) and coerce numeric-like strings
+        try:
+            df = read_dataset_file(ds.file_path)
+            df = coerce_numeric_like(df)
+        except Exception as e:
+            print(f"[WebSocket] Error reading dataset: {e}")
+            emit('training_error', {'message': f'Could not read dataset: {str(e)}'})
             return
         
         print(f"[WebSocket] Loaded dataset with shape: {df.shape}")
-        
-        df.dropna(inplace=True)
         
         if ds.target_feature and ds.target_feature in df.columns:
             y = df[ds.target_feature]
             X = df[ds.input_features.split(',')] if ds.input_features else df.drop(columns=[ds.target_feature])
         else:
             X, y = df.iloc[:, :-1], df.iloc[:, -1]
+        # Drop rows with missing target; keep feature NaNs for imputers
+        if hasattr(y, 'notna'):
+            mask = y.notna()
+            X = X.loc[mask]
+            y = y.loc[mask]
         
         print(f"[WebSocket] X shape: {X.shape}, y shape: {y.shape}")
         

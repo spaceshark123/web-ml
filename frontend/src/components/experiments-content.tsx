@@ -572,7 +572,7 @@ export function ExperimentsContent() {
 																		<Card key={k} className="p-4">
 																			<CardTitle className="text-sm capitalize">{k.replace('_',' ').toUpperCase()}</CardTitle>
 																			<CardContent className="pt-2">
-																				<div className="text-2xl font-semibold">{(k==='accuracy'||k==='precision'||k==='recall'||k==='f1'||k==='roc_auc'||k==='pr_auc') ? Number(experimentData.metrics[k]).toFixed(k==='roc_auc'||k==='pr_auc'?3:3) : experimentData.metrics[k]}</div>
+																				<div className="text-2xl font-semibold whitespace-normal break-words break-all">{(k==='accuracy'||k==='precision'||k==='recall'||k==='f1'||k==='roc_auc'||k==='pr_auc') ? Number(experimentData.metrics[k]).toFixed(k==='roc_auc'||k==='pr_auc'?3:3) : experimentData.metrics[k]}</div>
 																			</CardContent>
 																		</Card>
 																	)
@@ -586,7 +586,7 @@ export function ExperimentsContent() {
 																			<Card className="p-4">
 																				<CardTitle className="text-sm">PR AUC (Macro OvR)</CardTitle>
 																				<CardContent className="pt-2">
-																					<div className="text-2xl font-semibold">{macro.toFixed(3)}</div>
+																					<div className="text-2xl font-semibold whitespace-normal break-words break-all">{macro.toFixed(3)}</div>
 																				</CardContent>
 																			</Card>
 																		)
@@ -597,10 +597,10 @@ export function ExperimentsContent() {
 																<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
 																{['mse','rmse','mae','r2'].map((k) => (
 																	experimentData.metrics[k] !== undefined && (
-																		<Card key={k} className="p-4">
+									<Card key={k} className="p-4">
 																				<CardTitle className="text-sm uppercase">{k}</CardTitle>
 																			<CardContent className="pt-2">
-																					<div className="text-2xl font-semibold">{Number(experimentData.metrics[k]).toFixed(k==='r2'?3:4)}</div>
+										    <div className="text-2xl font-semibold whitespace-normal break-words break-all">{Number(experimentData.metrics[k]).toFixed(k==='r2'?3:4)}</div>
 																			</CardContent>
 																		</Card>
 																	)
