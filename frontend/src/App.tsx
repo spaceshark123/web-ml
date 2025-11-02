@@ -10,6 +10,7 @@ import DashboardPage from "@/pages/dashboard"
 import DatasetsPage from "@/pages/datasets"
 import ModelsPage from "@/pages/models"
 import ComparePage from "@/pages/compare"
+import ExperimentsPage from "@/pages/experiments"
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -92,6 +93,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <ModelsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route 
+          path="/experiments"
+          element={
+            <ProtectedRoute>
+              <ExperimentsPage />
             </ProtectedRoute>
           }
         />

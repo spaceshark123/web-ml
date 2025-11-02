@@ -87,13 +87,13 @@ export function DashboardContent() {
 				<StatCard
 					icon={<FlaskConical className="w-10 h-10" />}
 					value="0"
-					label="Experiments"
+					label="Experiments Completed"
 					gradient="from-[#8B5FBF] to-[#9B4FAF]"
 				/>
 				<StatCard
 					icon={<TrendingUp className="w-10 h-10" />}
 					value="0"
-					label="Completed"
+					label="Comparisons Done"
 					gradient="from-[#9B4FAF] to-[#AB3F9F]"
 				/>
 			</div>
@@ -165,30 +165,30 @@ export function DashboardContent() {
 					</Button>
 				</Card>
 
-				{/* Recent Experiments */}
+				{/* Recent Models */}
 				<Card className="p-6 space-y-4 shadow-sm">
 					<div className="flex items-center gap-2">
-						<FlaskConical className="w-5 h-5 text-green-600" />
-						<h2 className="text-xl font-semibold">Recent Experiments</h2>
+						<Settings className="w-5 h-5 text-green-600" />
+						<h2 className="text-xl font-semibold">Recent Models</h2>
 					</div>
 
 					<div className="space-y-3">
-						<ExperimentItem
-							title="Quick Training: titanic on titanic"
+						<ModelItem
+							title="Linear Regression"
 							dataset="titanic"
-							status="Running"
+							type="Regression"
 							time="2 weeks, 1 day ago"
 						/>
-						<ExperimentItem
-							title="Quick Training: l on titanic"
-							dataset="l"
-							status="Running"
+						<ModelItem
+							title="MLP Classifier"
+							dataset="iris"
+							type="Classification"
 							time="2 weeks, 1 day ago"
 						/>
 					</div>
 
-					<Button variant="outline" className="w-full border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
-						View All Experiments
+					<Button variant="outline" className="w-full border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent" asChild>
+						<Link to="/models">View All Models</Link>
 					</Button>
 				</Card>
 			</div>
@@ -213,18 +213,18 @@ function StatCard({
 	)
 }
 
-function ExperimentItem({
+function ModelItem({
 	title,
 	dataset,
-	status,
+	type,
 	time,
-}: { title: string; dataset: string; status: string; time: string }) {
+}: { title: string; dataset: string; type: string; time: string }) {
 	return (
 		<div className="flex items-start justify-between py-3 border-b last:border-0">
 			<div className="flex-1">
 				<div className="flex items-center gap-2 mb-1">
 					<h3 className="font-semibold text-sm">{title}</h3>
-					<span className="px-2 py-0.5 bg-gray-600 text-white text-xs rounded">{status}</span>
+					<span className="px-2 py-0.5 bg-gray-600 text-white text-xs rounded">{type}</span>
 				</div>
 				<p className="text-sm text-muted-foreground">{dataset}</p>
 			</div>
