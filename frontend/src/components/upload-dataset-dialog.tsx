@@ -8,6 +8,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  MultiSelect,
+  MultiSelectContent,
+  MultiSelectGroup,
+  MultiSelectItem,
+  MultiSelectTrigger,
+  MultiSelectValue,
+} from "@/components/ui/multi-select"
 import { Input } from "@/components/ui/input"
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
@@ -26,6 +34,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
   const [error, setError] = useState("")
   const [step, setStep] = useState<'select' | 'specify'>('select')
   const [columns, setColumns] = useState<string[] | null>(null)
+  const [inputFeatures, setInputFeatures] = useState<string[] | null>(null)
   const [targetVariable, setTargetVariable] = useState<string | null>(null)
   const [splitPercent, setSplitPercent] = useState<number>(20)
   const [datasetId, setDatasetId] = useState<number | null>(null)
@@ -187,7 +196,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
     if (uploading && uploadAbortCtrlRef.current) {
       try {
         uploadAbortCtrlRef.current.abort()
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // If we have an uploaded dataset but specs not saved, delete it
@@ -197,7 +206,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       try {
         alert('Specification incomplete – Dataset upload cancelled')
         onUploadSuccess?.() // refresh the parent's dataset listing
-      } catch (_) {}
+      } catch (_) { }
       setDatasetId(null)
     }
 
@@ -218,13 +227,13 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if ((step === 'specify' && datasetId) || uploading) {
         // Try to abort upload
-        try { uploadAbortCtrlRef.current?.abort() } catch (_) {}
+        try { uploadAbortCtrlRef.current?.abort() } catch (_) { }
         // Attempt to delete dataset using keepalive so browser may send it
         if (datasetId) {
           try {
             // fetch with keepalive; best-effort
             fetch(`http://localhost:5000/api/datasets/${datasetId}`, { method: 'DELETE', credentials: 'include', keepalive: true })
-          } catch (_) {}
+          } catch (_) { }
         }
         e.preventDefault()
         e.returnValue = ''
@@ -242,6 +251,14 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setError('Please select a target variable')
       return
     }
+    if (!columns || !columns.includes(targetVariable)) {
+      setError('Target variable must be one of the dataset columns')
+      return
+    }
+    if (!inputFeatures || inputFeatures.length === 0) {
+      setError('Please select at least one input feature')
+      return
+    }
     if (splitPercent <= 0 || splitPercent >= 100) {
       setError('Test split must be between 0 and 100')
       return
@@ -257,7 +274,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_feature: targetVariable, train_test_split: splitPercent }),
+        body: JSON.stringify({ input_features: inputFeatures.join(","), target_feature: targetVariable, train_test_split: splitPercent }),
       })
 
       let body: any = null
@@ -298,6 +315,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setCustomName('')
       setDescription('')
       setColumns(null)
+      setInputFeatures(null)
       setTargetVariable(null)
       setSplitPercent(20)
       setDatasetId(null)
@@ -336,6 +354,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       setCustomName('')
       setDescription('')
       setColumns(null)
+      setInputFeatures(null)
       setTargetVariable(null)
       setSplitPercent(20)
       setDatasetId(null)
@@ -415,10 +434,46 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
             <DialogHeader>
               <DialogTitle>Dataset Specifications</DialogTitle>
               <DialogDescription>
-                Choose the target variable and the train/test split for downstream tasks.
+                Choose the input features, target variable, and the train/test split for downstream tasks.
               </DialogDescription>
             </DialogHeader>
+
             <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Input Features</Label>
+                {columns && columns.length > 0 ? (
+                  <div>
+                    <MultiSelect
+                      values={inputFeatures || []}
+                      onValuesChange={(values) => setInputFeatures(values)}
+                    >
+                      <MultiSelectTrigger className="w-full cursor-pointer">
+                        <MultiSelectValue placeholder="Select input features" />
+                      </MultiSelectTrigger>
+                      <MultiSelectContent className="bg-white">
+                        <MultiSelectGroup>
+                          {columns.map((c) => (
+                            <MultiSelectItem key={c} value={c} className="hover:bg-gray-200 cursor-pointer">{c}</MultiSelectItem>
+                          ))}
+                        </MultiSelectGroup>
+                      </MultiSelectContent>
+                    </MultiSelect>
+                    {inputFeatures && inputFeatures.length > 0 && (
+                      <div className="mt-2 text-sm">Selected: <strong>{inputFeatures.join(', ')}</strong></div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <Input
+                      placeholder="Enter input feature names, separated by commas (unable to auto-detect columns)"
+                      value={inputFeatures ? inputFeatures.join(', ') : ''}
+                      onChange={(e) => setInputFeatures(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                    />
+                    <p className="text-sm text-gray-500 mt-1">Note: Column auto-detection is not available for this file type.</p>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label>Target Variable</Label>
                 {columns && columns.length > 0 ? (

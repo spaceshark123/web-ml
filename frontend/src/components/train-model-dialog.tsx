@@ -25,28 +25,51 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 	const [error, setError] = useState("")
 
 	// hyperparameters state
-	const [maxDepth, setMaxDepth] = useState<number | "">("")
-	const [criteria, setCriteria] = useState<"gini" | "entropy" | "">("")
-	const [nEstimators, setNEstimators] = useState<number | "">("")
+	const [hyperparameters, setHyperparameters] = useState<Record<string, any>>({})
 
 	const handleTrain = async () => {
 		setError("")
-	}
+		try {
+			const body: Record<string, any> = {}
+			if (Object.keys(hyperparameters).length > 0) {
+				body.hyperparams = hyperparameters
+			}
+			const response = await fetch(`http://localhost:5000/api/train/${model.id}`, {
+				method: "POST",
+				credentials: "include",
+				headers: {
+					"Accept": "application/json",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(body),
+			})
+			if (!response.ok) {
+				if (response.status === 400) {
+					const data = await response.json()
+					setError(data.error || "Invalid hyperparameters")
+					return
+				} else {
+					setError(`Server error: ${response.status}`)
+					return
+				}
+			}
+			const data = await response.json()
+			if (data.error) {
+				setError(data.error)
+				return
+			}
+			// log
+			console.log("Train " + model.name + " response:", data)
+			alert("Training started successfully!")
+			setOpen(false)
 
-	/*
-	<div className="space-y-2">
-								<Label htmlFor="n-estimators">Number of Estimators</Label>
-								<Input
-									id="n-estimators"
-									type="number"
-									min={1}
-									max={100}
-									value={nEstimators}
-									onChange={(e) => { setNEstimators(Number(e.target.value)) }}
-									placeholder="Enter number of estimators (e.g., 10)"
-								/>
-							</div>
-	*/
+			// success
+			onTrainSuccess?.()
+		} catch (error) {
+			setError("Failed to start training. Please try again.")
+			return
+		}
+	}
 
 	const getModel = async () => {
 		try {
@@ -99,70 +122,28 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 						<p className="text-sm text-gray-600">No hyperparameters to set for Logistic Regression.</p>
 					)}
 					{model.model_type === "decision_tree" && (
-						// criteria and max_depth
-						<>
-							<div className="space-y-2">
-								<Label htmlFor="criteria">Criteria</Label>
-								<Select
-									defaultValue={"gini"}
-									onValueChange={(value) => {
-										setCriteria(value as "gini" | "entropy")
-									}}
-								>
-									<SelectTrigger className="w-full">
-										<SelectValue placeholder="Select criteria" />
-									</SelectTrigger>
-									<SelectContent className="bg-white">
-										<SelectItem value="gini" className="hover:bg-gray-200">Gini</SelectItem>
-										<SelectItem value="entropy" className="hover:bg-gray-200">Entropy</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="max-depth">Max Depth</Label>
-								<Input
-									id="max-depth"
-									type="number"
-									min={1}
-									max={10}
-									value={maxDepth}
-									onChange={(e) => setMaxDepth(Number(e.target.value))}
-									placeholder="Enter max depth (e.g., 5)"
-								/>
-							</div>
-						</>
+						// no hyperparameters for decision tree
+						<p className="text-sm text-gray-600">No hyperparameters to set for Decision Tree.</p>
 					)}
 					{model.model_type === "random_forest" && (
-						// n_estimators, criteria, max_depth
-						<>
-							<div className="space-y-2">
-								<Label htmlFor="criteria">Criteria</Label>
-								<Select
-									defaultValue={"gini"}
-									onValueChange={(value) => { setCriteria(value as "gini" | "entropy") }}
-								>
-									<SelectTrigger className="w-full">
-										<SelectValue placeholder="Select criteria" />
-									</SelectTrigger>
-									<SelectContent className="bg-white">
-										<SelectItem value="gini" className="hover:bg-gray-200">Gini</SelectItem>
-										<SelectItem value="entropy" className="hover:bg-gray-200">Entropy</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="max-depth">Max Depth</Label>
-								<Input
-									id="max-depth"
-									type="number"
-									min={1}
-									max={10}
-									value={maxDepth}
-									onChange={(e) => { setMaxDepth(Number(e.target.value)) }}
-									placeholder="Enter max depth (e.g., 5)"
-								/>
-							</div>
-						</>
+						// no hyperparameters for random forest
+						<p className="text-sm text-gray-600">No hyperparameters to set for Random Forest.</p>
+					)}
+					{model.model_type === "bagging" && (
+						// no hyperparameters for bagging
+						<p className="text-sm text-gray-600">No hyperparameters to set for Bagging.</p>
+					)}
+					{model.model_type === "boosting" && (
+						// no hyperparameters for boosting
+						<p className="text-sm text-gray-600">No hyperparameters to set for Boosting.</p>
+					)}
+					{model.model_type === "svm" && (
+						// no hyperparameters for SVM
+						<p className="text-sm text-gray-600">No hyperparameters to set for SVM.</p>
+					)}
+					{model.model_type === "mlp" && (
+						// no hyperparameters for MLP
+						<p className="text-sm text-gray-600">No hyperparameters to set for MLP.</p>
 					)}
 					{error && <p className="text-sm text-red-500">{error}</p>}
 				</div>

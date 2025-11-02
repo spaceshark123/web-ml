@@ -17,6 +17,7 @@ export interface Dataset {
 	file_size: number
 	rows: number
 	features: number
+	input_features: string
 	target_feature: string
 	models: number
 	error?: string
@@ -225,6 +226,7 @@ export function DatasetsContent() {
 										uploadDate={dataset.upload_date ? new Date(dataset.upload_date).toLocaleDateString() : 'Unknown'}
 										fileSize={dataset.file_size ? `${(dataset.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
 										rows={dataset.rows || 0}
+										input_features={dataset.input_features.split(",") || []}
 										target_feature={dataset.target_feature || "N/A"}
 										features={dataset.features || 0}
 										models={dataset.models || 0}

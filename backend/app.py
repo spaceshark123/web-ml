@@ -57,6 +57,7 @@ class Dataset(db.Model):
     # Historical schema uses `target_feature` and `train_test_split`.
     # Avoid adding `target_variable`/`split_percent` here unless you run a DB migration.
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
+    input_features = db.Column(db.String(500), nullable=True)  # comma-separated feature names
     target_feature = db.Column(db.String(100), nullable=True)
     train_test_split = db.Column(db.Float, nullable=True)
     
@@ -76,13 +77,14 @@ class ModelEntry(db.Model):
     dataset_id = db.Column(db.Integer, db.ForeignKey('dataset.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp(), nullable=True)
-    
-def preprocess(self, df, target_feature, test_split):
+
+def preprocess(df, input_features, target_feature, test_split):
     """
     Preprocess the dataset by removing missing values, duplicates, and splitting into train/test sets.
     
     Args:
         df: pandas DataFrame containing the dataset
+        input_features: list of feature column names
         target_feature: name of the target column
         test_split: percentage of data to use for testing (e.g., 20 for 20%)
     
@@ -103,6 +105,11 @@ def preprocess(self, df, target_feature, test_split):
     duplicates_removed = rows_after_missing - rows_after_duplicates
     
     # Separate features and target
+    if input_features and all(col in df_cleaned.columns for col in input_features):
+        X = df_cleaned[input_features]
+    else:
+        X = df_cleaned.drop(columns=[target_feature])
+
     if target_feature and target_feature in df_cleaned.columns:
         y = df_cleaned[target_feature]
         X = df_cleaned.drop(columns=[target_feature])
@@ -309,12 +316,17 @@ def upload():
         file = request.files.get('file')
         custom_name = request.form.get('name')
         description = request.form.get('description')
+        input_features = request.form.get('input_features')
         target_feature = request.form.get('target_feature')
         
         print(f"Received file: {file.filename if file else 'None'}")
         print(f"Custom name: {custom_name}")
         print(f"Description: {description}")
+        print(f"Input features: {input_features}")
         print(f"Target feature: {target_feature}")
+        
+        if not input_features:
+            input_features = None
 
         if not file:
             return jsonify({'error': 'No file provided'}), 400
@@ -345,7 +357,7 @@ def upload():
             
         try:
             # Save name with extension to ensure consistency when retrieving
-            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description, target_feature=target_feature)
+            ds = Dataset(name=filename, file_path=path, user_id=current_user.id, description=description, input_features=input_features, target_feature=target_feature)
             db.session.add(ds)
             db.session.commit()
         except Exception as e:
@@ -407,6 +419,7 @@ def upload():
                     'file_size': file_size,
                     'rows': rows,
                     'features': features,
+                    'input_features': input_features,
                     'target_feature': target_feature,
                     'upload_date': ds.created_at.isoformat(),
                     'error': f'Could not read file contents: {str(e)}'
@@ -424,6 +437,7 @@ def upload():
                 'file_size': file_size,
                 'rows': rows,
                 'features': features,
+                'input_features': input_features,
                 'target_feature': target_feature,
                 'upload_date': ds.created_at.isoformat(),
                 'models': 0
@@ -483,6 +497,7 @@ def get_datasets():
                     'file_size': 0,
                     'rows': 0,
                     'features': 0,
+                    'input_features': ds.input_features if ds.input_features else "",
                     'target_feature': ds.target_feature,
                     'models': ModelEntry.query.filter_by(dataset_id=ds.id).count()
                 }
@@ -617,13 +632,20 @@ def save_dataset_config(dataset_id):
         return jsonify({'error': 'Forbidden'}), 403
 
     data = request.json
+    
+    input_features = data.get('input_features') # expect a string (comma-separated features)
     target_feature = data.get('target_feature')
     train_test_split = data.get('train_test_split')
+    
+    if not input_features:
+        print("Input features are required")
+        return jsonify({'error': 'Input features required'}), 400
 
     if not target_feature or not isinstance(train_test_split, (int, float)):
         return jsonify({'error': 'Invalid configuration data'}), 400
 
     try:
+        ds.input_features = input_features
         ds.target_feature = target_feature
         ds.train_test_split = float(train_test_split)
         db.session.commit()
@@ -809,7 +831,12 @@ def preprocess_dataset(dataset_id):
         return jsonify({'error': 'Forbidden'}), 403
 
     if not ds.train_test_split or not ds.target_feature:
+        print("Dataset must have target_feature and train_test_split configured")
         return jsonify({'error': 'Dataset must have target_feature and train_test_split configured'}), 400
+
+    if not ds.input_features:
+        print("Input features are required")
+        return jsonify({'error': 'Input features required'}), 400
 
     try:
         # Read file temporarily (df is not stored)
@@ -830,11 +857,17 @@ def preprocess_dataset(dataset_id):
         
         # Validate target feature exists
         if ds.target_feature not in df_cleaned.columns:
+            print(f"Target feature '{ds.target_feature}' not found in dataset")
             return jsonify({'error': f'Target feature "{ds.target_feature}" not found in dataset'}), 400
+        
+        if not all(col in df_cleaned.columns for col in ds.input_features.split(',')):
+            print(f"One or more input features not found in dataset: {ds.input_features}")
+            return jsonify({'error': 'One or more input features not found in dataset'}), 400
         
         # Separate features and target
         y = df_cleaned[ds.target_feature]
-        X = df_cleaned.drop(columns=[ds.target_feature])
+        X = df_cleaned[ds.input_features.split(',')]
+        
         
         # Convert percentage to decimal
         test_size = ds.train_test_split / 100.0
@@ -855,6 +888,7 @@ def preprocess_dataset(dataset_id):
             'train_samples': len(X_train),
             'test_samples': len(X_test),
             'features_count': len(X.columns),
+            'input_features': ds.input_features,
             'target_feature': ds.target_feature
         }
         
@@ -912,17 +946,22 @@ def train(model_id):
             import openpyxl
             df = pd.read_excel(ds.file_path, engine='openpyxl')
         else:
+            print(f"Error: Unsupported dataset format '{ext}' for training")
             return jsonify({'error': 'Unsupported dataset format for training'}), 400
     except Exception as e:
+        print(f"Error reading dataset for training: {str(e)}")
         return jsonify({'error': f'Could not read dataset: {e}'}), 500
 
     if df.shape[1] < 2:
+        print(f"Error: Dataset must have at least 2 columns (features + target)")
         return jsonify({'error': 'Dataset must have at least 2 columns (features + target)'}), 400
+    
+    df.dropna(inplace=True)
 
     if ds.target_feature and ds.target_feature in df.columns:
         # Use the configured target feature
         y = df[ds.target_feature]
-        X = df.drop(columns=[ds.target_feature])
+        X = df[ds.input_features.split(',')] if ds.input_features else df.drop(columns=[ds.target_feature])
     else:
         # Fallback to last column as target
         X, y = df.iloc[:, :-1], df.iloc[:, -1]
@@ -943,7 +982,7 @@ def train(model_id):
         entry = wrapper.to_db_record(name=m_entry.name, dataset_id=ds.id, user_id=current_user.id)
         entry.id = m_entry.id
         entry.metrics = json.dumps(metrics)
-        db.session.add(entry)
+        db.session.merge(entry)
         db.session.commit()
         return jsonify({
             'msg': 'Trained and saved model',
@@ -952,6 +991,7 @@ def train(model_id):
             'test_size_used': test_size  # Return the actual test size used
         }), 201
     except Exception as e:
+        print(f"Error during model training: {str(e)}")
         return jsonify({'error': f'Failed to train model: {str(e)}'}), 500
 
 @app.route('/api/models/<int:model_id>/predict', methods=['POST'])
