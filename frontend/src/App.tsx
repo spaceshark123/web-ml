@@ -1,6 +1,4 @@
 //import { useState } from "react";
-import axios from "axios";
-import { API_BASE_URL } from "./constants";
 import { Routes, Route, Navigate } from "react-router-dom"
 import { AuthProvider } from "@/contexts/auth-context"
 import { ProtectedRoute } from "@/components/protected-route"
@@ -12,10 +10,10 @@ import ModelsPage from "@/pages/models"
 import ComparePage from "@/pages/compare"
 import ExperimentsPage from "@/pages/experiments"
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-});
+// const api = axios.create({
+//   baseURL: API_BASE_URL,
+//   withCredentials: true,
+// });
 
 // function App() {
 //   const [email, setEmail] = useState("");

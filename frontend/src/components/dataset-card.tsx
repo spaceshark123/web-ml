@@ -21,11 +21,16 @@ interface DatasetCardProps {
 	target_feature: string
 	models: number
 	error?: string
+	imbalance?: {
+		minority_class_percentage: number
+		imbalance_ratio: number
+		is_imbalanced: boolean
+	}
 	onDelete?: () => void
 	onDownload?: () => void
 }
 
-export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, regression, input_features, target_feature, features, models, error, onDelete, onDownload }: DatasetCardProps) {
+export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, regression, input_features, target_feature, features, models, error, imbalance, onDelete, onDownload }: DatasetCardProps) {
 	return (
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
@@ -37,6 +42,15 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 			{/* Dataset Metadata */}
 			<CardContent>
 				{error && <p className="text-red-500">{error}</p>}
+				{/* Imbalance warning for classification datasets when detected */}
+				{!regression && imbalance && imbalance.is_imbalanced && (
+					<div className="mb-4 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm">
+						<span className="font-medium">Class imbalance detected.</span>{' '}
+						<span>
+							Minority class: {imbalance.minority_class_percentage.toFixed(2)}% • Ratio: {Number.isFinite(imbalance.imbalance_ratio) ? imbalance.imbalance_ratio.toFixed(2) : '∞'}
+						</span>
+					</div>
+				)}
 				<div className="mb-6 space-y-2">
 					<div className="flex justify-between text-sm">
 						<span className="text-gray-600">Uploaded:</span>

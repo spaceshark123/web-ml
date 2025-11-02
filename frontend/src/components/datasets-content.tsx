@@ -22,6 +22,11 @@ export interface Dataset {
 	models: number
 	error?: string
 	description?: string
+	imbalance?: {
+		minority_class_percentage: number
+		imbalance_ratio: number
+		is_imbalanced: boolean
+	} | null
 }
 
 // Note: direct fetch is used throughout; axios not required here
@@ -276,6 +281,7 @@ export function DatasetsContent() {
 										target_feature={dataset.target_feature || "N/A"}
 										features={dataset.features || 0}
 										models={dataset.models || 0}
+										imbalance={dataset.imbalance || undefined}
 										error={dataset.error}
 										onDelete={handleDelete}
 										onDownload={() => downloadDataset(dataset.id, dataset.name)}

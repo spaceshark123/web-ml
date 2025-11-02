@@ -18,6 +18,7 @@ from sklearn.metrics import (
     precision_recall_curve, average_precision_score, confusion_matrix
 )
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.pipeline import Pipeline
 from sklearn.exceptions import NotFittedError
@@ -390,7 +391,21 @@ class ModelWrapper:
         if model_type == 'linear_regression':
             if not regression:
                 raise ValueError("Linear Regression model requires regression=True")
-            return LinearRegression(**(params or {}))
+            # Add imputers and encoding for categorical
+            num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+            cat_pipe = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+            ])
+            pre = ColumnTransformer(
+                transformers=[
+                    ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                    ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                ],
+                remainder='drop'
+            )
+            base = LinearRegression(**(params or {}))
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'logistic_regression':
             if regression:
                 raise ValueError("Logistic Regression model requires regression=False")
@@ -402,51 +417,157 @@ class ModelWrapper:
             return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'decision_tree':
             if regression:
-                return DecisionTreeRegressor(**(params or {}))
+                # Add imputers and encoding for categorical
+                num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+                cat_pipe = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ])
+                pre = ColumnTransformer(
+                    transformers=[
+                        ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                        ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                    ],
+                    remainder='drop'
+                )
+                base = DecisionTreeRegressor(**(params or {}))
+                return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
             base = DecisionTreeClassifier(**(params or {}))
+            num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+            cat_pipe = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+            ])
             pre = ColumnTransformer(
-                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
-                remainder='passthrough'
+                transformers=[
+                    ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                    ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                ],
+                remainder='drop'
             )
             return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'random_forest':
             if regression:
-                return RandomForestRegressor(**(params or {}))
+                num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+                cat_pipe = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ])
+                pre = ColumnTransformer(
+                    transformers=[
+                        ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                        ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                    ],
+                    remainder='drop'
+                )
+                base = RandomForestRegressor(**(params or {}))
+                return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
             base = RandomForestClassifier(**(params or {}))
+            num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+            cat_pipe = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+            ])
             pre = ColumnTransformer(
-                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
-                remainder='passthrough'
+                transformers=[
+                    ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                    ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                ],
+                remainder='drop'
             )
             return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'bagging':
             if regression:
-                return BaggingRegressor(**(params or {}))
+                num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+                cat_pipe = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ])
+                pre = ColumnTransformer(
+                    transformers=[
+                        ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                        ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                    ],
+                    remainder='drop'
+                )
+                base = BaggingRegressor(**(params or {}))
+                return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
             base = BaggingClassifier(**(params or {}))
+            num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+            cat_pipe = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+            ])
             pre = ColumnTransformer(
-                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
-                remainder='passthrough'
+                transformers=[
+                    ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                    ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                ],
+                remainder='drop'
             )
             return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'boosting':
             if regression:
-                return GradientBoostingRegressor(**(params or {}))
+                num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+                cat_pipe = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ])
+                pre = ColumnTransformer(
+                    transformers=[
+                        ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                        ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                    ],
+                    remainder='drop'
+                )
+                base = GradientBoostingRegressor(**(params or {}))
+                return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
             base = AdaBoostClassifier(**(params or {}))
+            num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+            cat_pipe = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+            ])
             pre = ColumnTransformer(
-                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
-                remainder='passthrough'
+                transformers=[
+                    ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                    ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                ],
+                remainder='drop'
             )
             return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'svm':
             if regression:
-                return SVR(**(params or {}))
+                num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+                cat_pipe = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ])
+                pre = ColumnTransformer(
+                    transformers=[
+                        ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                        ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                    ],
+                    remainder='drop'
+                )
+                base = SVR(**(params or {}))
+                return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
             # Ensure we don't pass duplicate 'probability' kwarg
             _params = dict(params or {})
             if 'probability' not in _params:
                 _params['probability'] = True
             base = SVC(**_params)
+            num_pipe = Pipeline(steps=[('imputer', SimpleImputer(strategy='median'))])
+            cat_pipe = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+            ])
             pre = ColumnTransformer(
-                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
-                remainder='passthrough'
+                transformers=[
+                    ('num', num_pipe, make_column_selector(dtype_include=['number'])),
+                    ('cat', cat_pipe, make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))
+                ],
+                remainder='drop'
             )
             return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'mlp':
@@ -595,42 +716,21 @@ def upload():
             return jsonify({'error': f'Failed to save dataset to database: {str(e)}'}), 500
             
         try:
-            # Read dataset info based on file extension
-            if original_ext == '.csv':
-                df = pd.read_csv(path)
-            elif original_ext == '.txt':
-                df = pd.read_csv(path, sep='\t')  # Assuming tab-separated values
-            elif original_ext == '.xlsx':
-                try:
-                    import openpyxl
-                    df = pd.read_excel(path, engine='openpyxl')
-                except ImportError:
-                    return jsonify({
-                        'msg': 'Uploaded but could not read file contents',
-                        'dataset': {
-                            'id': ds.id,
-                            'name': filename,
-                            'file_path': path,
-                            'upload_date': ds.created_at.isoformat(),
-                            'error': 'Server missing openpyxl package required for Excel files'
-                        }
-                    })
-                except Exception as excel_error:
-                    return jsonify({
-                        'msg': 'Uploaded but could not read file contents',
-                        'dataset': {
-                            'id': ds.id,
-                            'name': filename,
-                            'file_path': path,
-                            'upload_date': ds.created_at.isoformat(),
-                            'error': f'Error reading Excel file: {str(excel_error)}'
-                        }
-                    })
-            else:
-                return jsonify({'error': 'Unsupported file format'}), 400
+            # Read dataset info (robust encoding for CSV/TXT)
+            df = read_dataset_file(path)
 
             file_size = os.path.getsize(path)
             rows, features = df.shape
+            # Schema/size checks -> warnings (non-fatal)
+            schema_warnings = []
+            if features < 2:
+                schema_warnings.append('Dataset has fewer than 2 columns; models require features and a target.')
+            if rows == 0:
+                schema_warnings.append('Dataset appears to be empty after reading.')
+            if rows > 1_000_000:
+                schema_warnings.append('Dataset has over 1,000,000 rows and may impact performance.')
+            if features > 200:
+                schema_warnings.append('Dataset has over 200 features and may impact performance.')
         except Exception as e:
             print(f"Error reading file contents: {str(e)}")
             # Don't delete the file or database entry here as they're valid
@@ -654,6 +754,19 @@ def upload():
                 }
             })
 
+        # Optionally compute class imbalance immediately for classification
+        imbalance_info = None
+        try:
+            if not regression:
+                if target_feature and target_feature in df.columns:
+                    y_tmp = df[target_feature].dropna()
+                else:
+                    # Fallback: use last column as proxy target
+                    y_tmp = df.iloc[:, -1].dropna()
+                imbalance_info = _class_imbalance_info(y_tmp)
+        except Exception as _:
+            imbalance_info = None
+
         return jsonify({
             'msg': 'Uploaded successfully',
             'dataset': {
@@ -669,6 +782,8 @@ def upload():
                 'input_features': input_features,
                 'target_feature': target_feature,
                 'upload_date': ds.created_at.isoformat(),
+                'imbalance': imbalance_info,
+                'schema_warnings': schema_warnings if 'schema_warnings' in locals() else [],
                 'models': 0
             }
         })
@@ -729,7 +844,8 @@ def get_datasets():
                     'regression': ds.regression,
                     'input_features': ds.input_features if ds.input_features else "",
                     'target_feature': ds.target_feature,
-                    'models': ModelEntry.query.filter_by(dataset_id=ds.id).count()
+                    'models': ModelEntry.query.filter_by(dataset_id=ds.id).count(),
+                    'imbalance': None
                 }
                 
                 if not ds.file_path:
@@ -748,32 +864,21 @@ def get_datasets():
                 print(f"File extension: {file_ext}")
                 
                 try:
-                    if file_ext == '.csv':
-                        df = pd.read_csv(ds.file_path)
-                    elif file_ext == '.txt':
-                        df = pd.read_csv(ds.file_path, sep='\t')
-                    elif file_ext == '.xlsx':
-                        try:
-                            import openpyxl
-                            df = pd.read_excel(ds.file_path, engine='openpyxl')
-                        except ImportError:
-                            print("openpyxl not installed - required for reading .xlsx files")
-                            dataset_info['error'] = 'Server missing openpyxl package required for Excel files'
-                            result.append(dataset_info)
-                            continue
-                        except Exception as excel_error:
-                            print(f"Error reading Excel file: {str(excel_error)}")
-                            dataset_info['error'] = f'Error reading Excel file: {str(excel_error)}'
-                            result.append(dataset_info)
-                            continue
-                    else:
-                        print(f"Unsupported file extension: {file_ext}")
-                        dataset_info['error'] = 'Unsupported file format'
-                        result.append(dataset_info)
-                        continue
+                    df = read_dataset_file(ds.file_path)
                         
                     file_size = os.path.getsize(ds.file_path)
                     rows, features = df.shape
+
+                    # Compute class imbalance for classification; if target unknown, use last column as proxy
+                    try:
+                        if not ds.regression:
+                            if ds.target_feature and ds.target_feature in df.columns:
+                                y_tmp = df[ds.target_feature].dropna()
+                            else:
+                                y_tmp = df.iloc[:, -1].dropna()
+                            dataset_info['imbalance'] = _class_imbalance_info(y_tmp)
+                    except Exception:
+                        dataset_info['imbalance'] = None
                     
                     # Update with file stats
                     try:
@@ -787,6 +892,21 @@ def get_datasets():
                         dataset_info.update({
                             'error': f'Error processing file stats: {str(e)}'
                         })
+                    # Schema/size warnings
+                    warnings_list = []
+                    try:
+                        if int(features) < 2:
+                            warnings_list.append('Dataset has fewer than 2 columns; models require features and a target.')
+                        if int(rows) == 0:
+                            warnings_list.append('Dataset appears to be empty after reading.')
+                        if int(rows) > 1_000_000:
+                            warnings_list.append('Dataset has over 1,000,000 rows and may impact performance.')
+                        if int(features) > 200:
+                            warnings_list.append('Dataset has over 200 features and may impact performance.')
+                    except Exception:
+                        pass
+                    if warnings_list:
+                        dataset_info['schema_warnings'] = warnings_list
                     result.append(dataset_info)
                     print(f"Successfully processed dataset {ds.id}")
                     
@@ -1731,13 +1851,34 @@ def delete_model(model_id):
     db.session.commit()
     return jsonify({'msg': 'Model deleted'})
 
+def _read_text_table_with_encoding(file_path: str, sep: str = ','):
+    """Read a text table (CSV/TXT) with resilient encoding handling.
+    Tries utf-8, then chardet-detected encoding, then latin-1 as a last resort.
+    """
+    # Try UTF-8 first
+    try:
+        return pd.read_csv(file_path, sep=sep, encoding='utf-8')
+    except UnicodeDecodeError:
+        pass
+    # Try chardet detection if available
+    try:
+        import chardet  # type: ignore
+        with open(file_path, 'rb') as f:
+            raw = f.read(64 * 1024)
+        guess = chardet.detect(raw)
+        enc = guess.get('encoding') or 'latin-1'
+        return pd.read_csv(file_path, sep=sep, encoding=enc)
+    except Exception:
+        # Last resort
+        return pd.read_csv(file_path, sep=sep, encoding='latin-1', engine='python')
+
 def read_dataset_file(file_path: str):
     ext = os.path.splitext(file_path)[1].lower()
     try:
         if ext == '.csv':
-            return pd.read_csv(file_path)
+            return _read_text_table_with_encoding(file_path, ',')
         elif ext == '.txt':
-            return pd.read_csv(file_path, sep='\t')
+            return _read_text_table_with_encoding(file_path, '\t')
         elif ext == '.xlsx':
             import openpyxl
             return pd.read_excel(file_path, engine='openpyxl')
