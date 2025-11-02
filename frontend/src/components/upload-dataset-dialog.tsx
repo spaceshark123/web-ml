@@ -375,7 +375,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       <DialogTrigger asChild>
         <Button className="bg-blue-600 hover:bg-blue-700 text-white">{text ? text : "Upload New Dataset"}</Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent className="max-h-[90vh] overflow-y-auto overflow-x-hidden">
         {step === 'select' ? (
           <>
             <DialogHeader>
@@ -477,12 +477,12 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                   )}
                 </div>
                 {columns && columns.length > 0 ? (
-                  <div className="w-full min-w-0 overflow-hidden">
+                  <div>
                     <MultiSelect
                       values={inputFeatures || []}
                       onValuesChange={(values) => setInputFeatures(values)}
                     >
-                      <MultiSelectTrigger className="w-full cursor-pointer max-w-full">
+                      <MultiSelectTrigger className="w-[99%] cursor-pointer max-w-full">
                         <MultiSelectValue placeholder="Select input features" />
                       </MultiSelectTrigger>
                       <MultiSelectContent className="bg-white">
@@ -529,8 +529,8 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
                     </Select>
                     {targetVariable && (
                       <div className="mt-2 text-sm break-words overflow-wrap-anywhere max-w-full">
-                        <span className="block">Selected:</span>
-                        <strong className="block break-all">{targetVariable}</strong>
+                        <span>Selected: </span>
+                        <strong>{targetVariable}</strong>
                       </div>
                     )}
                     {targetVariable && inputFeatures && inputFeatures.includes(targetVariable) && (
