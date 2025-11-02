@@ -11,6 +11,7 @@ import type { Dataset } from "./datasets-content"
 
 // Import experiment history helpers
 const EXPERIMENT_HISTORY_KEY = 'web-ml-experiment-history'
+const COMPARISONS_COUNT_KEY = 'web-ml-comparisons-count'
 
 interface SavedExperiment {
 	id: string
@@ -32,10 +33,20 @@ function loadExperimentHistory(): SavedExperiment[] {
 	}
 }
 
+function loadComparisonsCount(): number {
+	try {
+		const raw = localStorage.getItem(COMPARISONS_COUNT_KEY)
+		return raw ? parseInt(raw, 10) : 0
+	} catch {
+		return 0
+	}
+}
+
 export function DashboardContent() {
 	const [datasets, setDatasets] = useState<Dataset[]>([])
 	const [models, setModels] = useState<Model[]>([])
 	const [experiments, setExperiments] = useState<SavedExperiment[]>([])
+	const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
 	const navigate = useNavigate()
 
 	const fetchDatasets = async () => {
@@ -117,7 +128,7 @@ export function DashboardContent() {
 				/>
 				<StatCard
 					icon={<TrendingUp className="w-10 h-10" />}
-					value="0"
+					value={loadComparisonsCount().toString()}
 					label="Comparisons Done"
 					gradient="from-[#9B4FAF] to-[#AB3F9F]"
 				/>
@@ -136,7 +147,7 @@ export function DashboardContent() {
 					<div>
 						<label className="text-sm font-medium mb-2 block">Select a Model to Test:</label>
 						<div className="flex gap-3">
-							<Select>
+							<Select onValueChange={(value) => setSelectedModelId(value)}>
 								<SelectTrigger className="flex-1">
 									<SelectValue placeholder="Choose a model..." />
 								</SelectTrigger>
@@ -148,13 +159,15 @@ export function DashboardContent() {
 									))}
 								</SelectContent>
 							</Select>
-							<Button className="bg-green-600 hover:bg-green-700 text-white">
-								<Play className="w-4 h-4 mr-2" />
+							<Button className="bg-green-600 hover:bg-green-700 text-white" onClick={() => navigate(`/experiments?model_id=${selectedModelId}`) } disabled={!selectedModelId}>
+								<Play className="w-4 h-4 mr-2 inline" />
 								Run Performance Test
 							</Button>
 							<Button variant="outline" className="border-info text-info hover:bg-info/10 bg-transparent">
-								<Eye className="w-4 h-4 mr-2" />
-								View Details
+								<Link to="/models">
+									<Eye className="w-4 h-4 mr-2 inline" />
+									View Details
+								</Link>
 							</Button>
 						</div>
 					</div>
@@ -175,12 +188,12 @@ export function DashboardContent() {
 
 					<div className="space-y-4">
 						{datasets.slice(0, 3).map((dataset) => (
-						<div key={dataset.id} className="flex items-start justify-between py-3 border-b">
-							<div>
-								<h3 className="font-semibold">{dataset.name}</h3>
-								<p className="text-sm text-muted-foreground">{dataset.rows} rows, {dataset.features} columns</p>
-							</div>
-							<span className="text-sm text-muted-foreground">{new Date(dataset.upload_date).toLocaleDateString()}</span>
+							<div key={dataset.id} className="flex items-start justify-between py-3 border-b">
+								<div>
+									<h3 className="font-semibold">{dataset.name}</h3>
+									<p className="text-sm text-muted-foreground">{dataset.rows} rows, {dataset.features} columns</p>
+								</div>
+								<span className="text-sm text-muted-foreground">{new Date(dataset.upload_date).toLocaleDateString()}</span>
 							</div>
 						))}
 					</div>

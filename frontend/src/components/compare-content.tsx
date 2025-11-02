@@ -28,6 +28,14 @@ interface ComparisonData {
   model2: DetailedModel
 }
 
+const COMPARISONS_COUNT_KEY = 'web-ml-comparisons-count'
+
+function incrementComparisons() {
+  const count = localStorage.getItem(COMPARISONS_COUNT_KEY)
+  const newCount = (Number(count) || 0) + 1
+  localStorage.setItem(COMPARISONS_COUNT_KEY, String(newCount))
+}
+
 export function CompareContent() {
   const [models, setModels] = useState<Model[]>([])
   const [datasets, setDatasets] = useState<Array<{ id: number; name: string }>>([])
@@ -92,6 +100,7 @@ export function CompareContent() {
       if (response.ok) {
         const data = await response.json()
         setComparisonData(data)
+        incrementComparisons()
         fetchModels()  // Refresh models list to get updated metrics
       }
     } catch (error) {
