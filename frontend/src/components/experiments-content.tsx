@@ -37,6 +37,8 @@ export function ExperimentsContent() {
 	const [selectedModel, setSelectedModel] = useState<string>("")
 	const [experimentData, setExperimentData] = useState<ExperimentsResponse | null>(null)
 	const [loading, setLoading] = useState(false)
+	const [shapProgress, setShapProgress] = useState<number>(0)
+	const [shapPollingId, setShapPollingId] = useState<number | null>(null)
 
 	useEffect(() => {
 		fetchModels()
@@ -81,23 +83,100 @@ export function ExperimentsContent() {
 		setTimeout(() => setLoading(false), 800)
 	}
 
-		const evaluateModel = async () => {
-				setExperimentData(null)
-				if (!selectedModel) return
-				setLoading(true)
-				try {
-					const res = await fetch(`${API_BASE_URL}/models/${selectedModel}/experiments`, {
-						credentials: 'include',
-						headers: { 'Content-Type': 'application/json' },
-					})
-					const data: ExperimentsResponse = await res.json()
-					setExperimentData(data)
-				} catch (e) {
-					console.error('Failed to evaluate model', e)
-				} finally {
-					setLoading(false)
-				}
+	const evaluateModel = async () => {
+		setExperimentData(null)
+		if (!selectedModel) return
+		
+		// Clear any existing polling interval
+		if (shapPollingId !== null) {
+			window.clearInterval(shapPollingId)
+			setShapPollingId(null)
 		}
+		setShapProgress(0)
+		
+		setLoading(true)
+		
+		// Capture the model ID we're evaluating to prevent stale closures
+		const modelForPolling = selectedModel
+		
+		try {
+			const res = await fetch(`${API_BASE_URL}/models/${selectedModel}/experiments?shap_async=1`, {
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+			})
+			const data: ExperimentsResponse = await res.json()
+			setExperimentData(data)
+			
+			// If SHAP is pending, start polling progress
+			if (data && (data as any).shap && (data as any).shap.status === 'pending') {
+				setShapProgress(0)
+				
+				// Begin polling every 1 second for smoother progress updates
+				const intervalId = window.setInterval(async () => {
+					// Stop polling if user switched to a different model
+					if (selectedModel !== modelForPolling) {
+						window.clearInterval(intervalId)
+						setShapPollingId(null)
+						return
+					}
+					
+					try {
+						const r = await fetch(`${API_BASE_URL}/models/${modelForPolling}/experiments/shap`, {
+							credentials: 'include',
+							headers: { 'Content-Type': 'application/json' },
+						})
+						const stat = await r.json()
+						console.log('SHAP polling response:', stat)
+						
+						if (typeof stat.progress === 'number') setShapProgress(stat.progress)
+						
+						if (stat.status === 'done' && stat.shap) {
+							console.log('SHAP computation complete, updating data:', stat.shap)
+							setExperimentData((prev) => {
+								const updated = prev ? { ...prev, shap: stat.shap } : prev
+								console.log('Updated experiment data:', updated)
+								return updated
+							})
+							setShapProgress(0)
+							window.clearInterval(intervalId)
+							setShapPollingId(null)
+						} else if (stat.status === 'error') {
+							setExperimentData((prev) => prev ? { ...prev, shap: { feature_importance: [], error: stat.error } } : prev)
+							setShapProgress(0)
+							window.clearInterval(intervalId)
+							setShapPollingId(null)
+						} else if (stat.status === 'none') {
+							// Job doesn't exist, stop polling
+							window.clearInterval(intervalId)
+							setShapPollingId(null)
+							setShapProgress(0)
+							setExperimentData((prev) => prev ? { ...prev, shap: { feature_importance: [], error: 'SHAP job not found' } } : prev)
+						}
+					} catch (e) {
+						console.error('SHAP polling error:', e)
+						// Stop polling on error
+						window.clearInterval(intervalId)
+						setShapPollingId(null)
+					}
+				}, 1000) // Poll every 1 second for smoother progress updates				setShapPollingId(intervalId)
+			} else {
+				setShapProgress(0)
+			}
+		} catch (e) {
+			console.error('Failed to evaluate model', e)
+		} finally {
+			setLoading(false)
+		}
+	}
+	
+	// Cleanup polling on unmount
+	useEffect(() => {
+		return () => {
+			if (shapPollingId !== null) {
+				window.clearInterval(shapPollingId)
+			}
+		}
+	}, [shapPollingId])
 
 	return (
 		<div className="min-h-screen bg-gray-50">
@@ -290,10 +369,24 @@ export function ExperimentsContent() {
 															</Card>
 														)}
 
-														{/* SHAP Feature Importance */}
-														{experimentData.shap && experimentData.shap.feature_importance && experimentData.shap.feature_importance.length > 0 && (
-															<Card>
-																<CardHeader>
+												{/* SHAP Feature Importance */}
+												{(experimentData as any)?.shap?.status === 'pending' && (
+													<Card>
+														<CardHeader>
+															<CardTitle className="text-lg">Feature Importance (SHAP)</CardTitle>
+															<CardDescription>Computing…</CardDescription>
+														</CardHeader>
+														<CardContent>
+															<div className="w-full h-3 bg-gray-200 rounded">
+																<div className="h-3 bg-purple-500 rounded" style={{ width: `${Math.min(100, Math.max(0, shapProgress))}%`, transition: 'width 0.5s ease' }} />
+															</div>
+															<p className="mt-2 text-xs text-gray-600">{Math.round(shapProgress)}% complete</p>
+														</CardContent>
+												</Card>
+											)}
+											{experimentData.shap && experimentData.shap.feature_importance && experimentData.shap.feature_importance.length > 0 && !(experimentData as any)?.shap?.status && (
+														<Card>
+															<CardHeader>
 																	<CardTitle className="text-lg">Feature Importance (SHAP)</CardTitle>
 																	<CardDescription>Mean |SHAP| values (top {Math.min(20, experimentData.shap.feature_importance.length)})</CardDescription>
 																</CardHeader>

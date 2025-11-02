@@ -4,25 +4,26 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
 import os, pandas as pd, pickle, io, datetime, numpy as np
+
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import BaggingClassifier, BaggingRegressor, AdaBoostClassifier, GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, KFold
 from sklearn.metrics import (
     accuracy_score, mean_squared_error, mean_absolute_error, r2_score,
     precision_score, recall_score, f1_score, roc_auc_score, roc_curve,
     precision_recall_curve, average_precision_score, confusion_matrix
 )
-from sklearn.model_selection import cross_val_score, StratifiedKFold, KFold
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer, make_column_selector
+from sklearn.pipeline import Pipeline
 import warnings
 from flask_socketio import SocketIO, emit
 import threading
+from flask_cors import CORS
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'devsecret'
@@ -30,11 +31,12 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB max uploads
 
-# Configure CORS
-from flask_cors import CORS
+# Initialize DB
+db = SQLAlchemy(app)
 
+# Configure CORS
 app.config['CORS_ORIGINS'] = ['http://localhost:5173']
-CORS(app, 
+CORS(app,
      resources={r"/api/*": {"origins": ["http://localhost:5173"]}},
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization"],
@@ -52,7 +54,6 @@ training_early_stopped = {}
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production
 
-db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.session_protection = "strong"
@@ -327,27 +328,61 @@ class ModelWrapper:
         if model_type == 'logistic_regression':
             if regression:
                 raise ValueError("Logistic Regression model requires regression=False")
-            return LogisticRegression(**(params or {}))
+            base = LogisticRegression(**(params or {}))
+            pre = ColumnTransformer(
+                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
+                remainder='passthrough'
+            )
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'decision_tree':
             if regression:
                 return DecisionTreeRegressor(**(params or {}))
-            return DecisionTreeClassifier(**(params or {}))
+            base = DecisionTreeClassifier(**(params or {}))
+            pre = ColumnTransformer(
+                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
+                remainder='passthrough'
+            )
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'random_forest':
             if regression:
                 return RandomForestRegressor(**(params or {}))
-            return RandomForestClassifier(**(params or {}))
+            base = RandomForestClassifier(**(params or {}))
+            pre = ColumnTransformer(
+                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
+                remainder='passthrough'
+            )
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'bagging':
             if regression:
                 return BaggingRegressor(**(params or {}))
-            return BaggingClassifier(**(params or {}))
+            base = BaggingClassifier(**(params or {}))
+            pre = ColumnTransformer(
+                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
+                remainder='passthrough'
+            )
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'boosting':
             if regression:
                 return GradientBoostingRegressor(**(params or {}))
-            return AdaBoostClassifier(**(params or {}))
+            base = AdaBoostClassifier(**(params or {}))
+            pre = ColumnTransformer(
+                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
+                remainder='passthrough'
+            )
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'svm':
             if regression:
                 return SVR(**(params or {}))
-            return SVC(**(params or {}))
+            # Ensure we don't pass duplicate 'probability' kwarg
+            _params = dict(params or {})
+            if 'probability' not in _params:
+                _params['probability'] = True
+            base = SVC(**_params)
+            pre = ColumnTransformer(
+                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
+                remainder='passthrough'
+            )
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         if model_type == 'mlp':
             # Convert hidden_layer_sizes from list to tuple for sklearn
             mlp_params = params.copy() if params else {}
@@ -355,7 +390,12 @@ class ModelWrapper:
                 mlp_params['hidden_layer_sizes'] = tuple(mlp_params['hidden_layer_sizes'])
             if regression:
                 return MLPRegressor(**mlp_params)
-            return MLPClassifier(**mlp_params)
+            base = MLPClassifier(**mlp_params)
+            pre = ColumnTransformer(
+                transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), make_column_selector(dtype_include=['object', 'category', 'string', 'bool']))],
+                remainder='passthrough'
+            )
+            return Pipeline(steps=[('preprocess', pre), ('estimator', base)])
         raise ValueError(f"Unknown model_type: {model_type}")
 
 @login_manager.user_loader
@@ -1029,7 +1069,7 @@ def compare_two_models(model_id, other_id):
             'id': entry.id,
             'name': entry.name,
             'model_type': entry.model_type,
-            'metrics': {**(json.loads(entry.metrics) if entry.metrics else {}), **result_metrics, 'preprocessing': prep},
+            'metrics': {**(json.loads(entry.metrics) if entry.metrics else {}), **result_metrics},
             'cv': cv
         }
 
@@ -1060,6 +1100,11 @@ def compare_two_models(model_id, other_id):
         
     return jsonify(data)
 
+# Simple in-memory store for SHAP async jobs
+from threading import Thread, Lock
+shap_jobs = {}
+shap_jobs_lock = Lock()
+
 # ===== Experiments / Evaluation endpoint =====
 @app.route('/api/models/<int:model_id>/experiments', methods=['GET'])
 @login_required
@@ -1080,6 +1125,30 @@ def model_experiments(model_id):
             'type': 'regression' if ds.regression else 'classification',
             'metrics': {},
         }
+
+        # Add preprocessing summary here (moved from compare endpoint)
+        try:
+            df_full = read_dataset_file(ds.file_path)
+            original_rows = int(df_full.shape[0])
+            rows_after_missing = int(df_full.dropna().shape[0])
+            missing_removed = original_rows - rows_after_missing
+            rows_after_duplicates = int(df_full.dropna().drop_duplicates().shape[0])
+            duplicates_removed = rows_after_missing - rows_after_duplicates
+            test_pct = float(ds.train_test_split) if ds.train_test_split is not None else 20.0
+            result['preprocessing'] = {
+                'original_rows': original_rows,
+                'missing_values_removed': missing_removed,
+                'duplicates_removed': duplicates_removed,
+                'final_rows': rows_after_duplicates,
+                'test_split_percentage': test_pct,
+                'train_samples': len(X_train),
+                'test_samples': len(X_test),
+                'features_count': len(X.columns),
+                'input_features': ds.input_features,
+                'target_feature': ds.target_feature,
+            }
+        except Exception:
+            pass
 
         if ds.regression:
             # Regression metrics
@@ -1107,50 +1176,269 @@ def model_experiments(model_id):
             if imb:
                 result['imbalance'] = imb
 
-        # SHAP feature importance (best-effort)
-        try:
-            import shap  # type: ignore
-            # sample background and evaluation sets to keep it fast
-            bg_sample = X_train.sample(min(100, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
-            eval_sample = X_test.sample(min(200, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
+            # Class distribution (overall)
+            try:
+                values, counts = np.unique(y, return_counts=True)
+                total = counts.sum() if counts.sum() > 0 else 1
+                result['class_distribution'] = [
+                    {'label': str(v), 'count': int(c), 'percentage': float(c) * 100.0 / float(total)}
+                    for v, c in zip(values, counts)
+                ]
+            except Exception:
+                pass
 
-            explainer = None
-            model = wrapper.model
-            model_name = type(model).__name__.lower()
-            if any(k in model_name for k in ['forest', 'tree', 'boost']):
-                explainer = shap.TreeExplainer(model, feature_perturbation='tree_path_dependent')
-                shap_vals = explainer.shap_values(eval_sample)
-            elif any(k in model_name for k in ['linear', 'logistic']):
-                # For classification, LinearExplainer needs a link; shap handles it internally
-                explainer = shap.LinearExplainer(model, bg_sample)
-                shap_vals = explainer.shap_values(eval_sample)
-            else:
-                # Fallback to model-agnostic (might be slower but we sample)
-                explainer = shap.KernelExplainer(lambda Xk: model.predict_proba(Xk)[:,1] if hasattr(model, 'predict_proba') else model.predict(Xk), bg_sample, link="identity")
-                shap_vals = explainer.shap_values(eval_sample, nsamples=100)
+            # Multiclass ROC curves (one-vs-rest) if applicable
+            try:
+                # Attempt to get score/probabilities
+                y_score = _get_proba_or_score(wrapper.model, X_test)
+                unique = np.unique(y_test)
+                if y_score is not None and unique.shape[0] > 2:
+                    # ensure 2D scores: shape (n_samples, n_classes)
+                    scores = y_score
+                    if scores.ndim == 1:
+                        # cannot plot multiclass ROC with 1D score
+                        scores = None
+                    if scores is not None:
+                        try:
+                            # Try classes_ from the model/pipeline, else fallback to sorted unique labels
+                            classes = getattr(wrapper.model, 'classes_', None)
+                            if classes is None:
+                                classes = sorted(list(unique))
+                            # Binarize labels per class and compute curve
+                            roc_curves_ovr = []
+                            roc_auc_ovr = []
+                            # Map class label order to score columns if possible
+                            # If classes is an array, assume scores columns align to that order
+                            for idx, cls in enumerate(classes):
+                                try:
+                                    # binarize y_test for current class
+                                    y_bin = (y_test == cls).astype(int)
+                                    # pick column idx if available, else attempt to find matching column
+                                    if scores.shape[1] > idx:
+                                        s = scores[:, idx]
+                                    else:
+                                        # fallback: use decision_function result if shape mismatch
+                                        s = scores[:, 0]
+                                    fpr, tpr, _ = roc_curve(y_bin, s)
+                                    roc_curves_ovr.append({
+                                        'class_label': str(cls),
+                                        'curve': [{'fpr': float(f), 'tpr': float(t)} for f, t in zip(fpr, tpr)]
+                                    })
+                                    roc_auc_ovr.append({'class_label': str(cls), 'auc': float(roc_auc_score(y_bin, s))})
+                                except Exception:
+                                    continue
+                            if roc_curves_ovr:
+                                result['metrics']['roc_curves_ovr'] = roc_curves_ovr
+                                result['metrics']['roc_auc_ovr'] = roc_auc_ovr
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
-            # shap_values can be list for classification (per class). Use positive class or first entry
-            if isinstance(shap_vals, list):
-                # prefer positive class if binary
-                arr = shap_vals[1] if len(shap_vals) > 1 else shap_vals[0]
-            else:
-                arr = shap_vals
+        # SHAP: optionally compute asynchronously so the response is fast and UI can render while SHAP is computed
+        shap_async = request.args.get('shap_async', '1') != '0'
+        if shap_async:
+            # enqueue job and return pending
+            try:
+                key = f"{current_user.id}:{m.id}"
+                with shap_jobs_lock:
+                    job = shap_jobs.get(key)
+                    if not job or job.get('status') in ('done','error'):
+                        shap_jobs[key] = {'status': 'queued', 'progress': 0, 'result': None, 'error': None}
 
-            mean_abs = np.abs(arr).mean(axis=0)
-            features = list(eval_sample.columns)
-            pairs = sorted([{'feature': f, 'importance': float(v)} for f, v in zip(features, mean_abs)], key=lambda x: x['importance'], reverse=True)
-            result['shap'] = {
-                'feature_importance': pairs[:20],
-                'total_features': len(features)
-            }
-        except Exception as e:
-            # SHAP optional, ignore failures
-            result['shap'] = {'feature_importance': [], 'error': str(e)}
+                def run_shap_job():
+                    try:
+                        import shap  # type: ignore
+                        import pandas as pd
+                        with shap_jobs_lock:
+                            if key in shap_jobs:
+                                shap_jobs[key]['status'] = 'running'
+                                shap_jobs[key]['progress'] = 5
+
+                        # samples
+                        bg_sample = X_train.sample(min(80, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
+                        eval_sample = X_test.sample(min(120, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
+                        model = wrapper.model
+                        feature_names = list(bg_sample.columns)
+
+                        def to_df(Xk):
+                            try:
+                                if isinstance(Xk, pd.DataFrame):
+                                    if list(Xk.columns) != feature_names:
+                                        try:
+                                            return Xk[feature_names]
+                                        except Exception:
+                                            return Xk
+                                    return Xk
+                                return pd.DataFrame(Xk, columns=feature_names)
+                            except Exception:
+                                return pd.DataFrame(Xk)
+
+                        if hasattr(model, 'predict_proba'):
+                            f = lambda Xk: model.predict_proba(to_df(Xk))
+                        else:
+                            f = lambda Xk: model.predict(to_df(Xk))
+
+                        explainer = shap.KernelExplainer(f, bg_sample)
+                        with shap_jobs_lock:
+                            if key in shap_jobs:
+                                    shap_jobs[key]['progress'] = 10
+
+                        # compute in smaller chunks to provide smoother progress updates
+                        n_chunks = 20
+                        chunks = np.array_split(np.arange(len(eval_sample)), n_chunks) if len(eval_sample) > 0 else []
+                        mean_abs_accum = np.zeros(len(eval_sample.columns)) if len(eval_sample.columns) > 0 else None
+                        total_samples = 0
+                        for i, idxs in enumerate(chunks):
+                            if len(idxs) == 0:
+                                continue
+                            part = eval_sample.iloc[idxs]
+                            shap_vals = explainer.shap_values(part, nsamples=80)
+                            
+                            # Handle multi-class (list of arrays) vs binary/regression (single array)
+                            if isinstance(shap_vals, list):
+                                # For multi-class: average absolute SHAP values across all classes
+                                # Each element in shap_vals has shape (n_samples, n_features)
+                                print(f"[SHAP DEBUG] Multi-class detected. Number of classes: {len(shap_vals)}")
+                                print(f"[SHAP DEBUG] Shape of each class: {[sv.shape for sv in shap_vals]}")
+                                abs_vals = [np.abs(sv) for sv in shap_vals]
+                                arr = np.mean(abs_vals, axis=0)  # Average across classes -> (n_samples, n_features)
+                                print(f"[SHAP DEBUG] After averaging: {arr.shape}")
+                            else:
+                                # For binary/regression: use absolute values directly
+                                print(f"[SHAP DEBUG] Binary/regression. SHAP values shape: {shap_vals.shape}")
+                                arr = np.abs(shap_vals)
+                                print(f"[SHAP DEBUG] After abs: {arr.shape}")
+                                
+                                # If 3D (n_samples, n_features, n_classes), average across classes
+                                if arr.ndim == 3:
+                                    print(f"[SHAP DEBUG] Detected 3D array (binary classification with probabilities), averaging across classes")
+                                    arr = arr.mean(axis=2)  # Average across classes -> (n_samples, n_features)
+                                    print(f"[SHAP DEBUG] After averaging classes: {arr.shape}")
+                            
+                            # Ensure arr is 2D: (n_samples, n_features)
+                            if arr.ndim == 1:
+                                print(f"[SHAP DEBUG] Reshaping 1D array {arr.shape} to 2D")
+                                arr = arr.reshape(-1, 1)
+                            
+                            print(f"[SHAP DEBUG] Final arr shape: {arr.shape}")                            # accumulate sums to compute mean later
+                            chunk_sum = arr.sum(axis=0)  # Sum across samples -> (n_features,)
+                            print(f"[SHAP DEBUG] chunk_sum shape: {chunk_sum.shape}")
+                            
+                            if mean_abs_accum is None:
+                                print(f"[SHAP DEBUG] Initializing mean_abs_accum with shape: {chunk_sum.shape}")
+                                mean_abs_accum = chunk_sum
+                            else:
+                                print(f"[SHAP DEBUG] Adding chunk_sum {chunk_sum.shape} to mean_abs_accum {mean_abs_accum.shape}")
+                                mean_abs_accum += chunk_sum
+                            total_samples += arr.shape[0]
+                            with shap_jobs_lock:
+                                if key in shap_jobs:
+                                        shap_jobs[key]['progress'] = 10 + int((i+1) / max(1, n_chunks) * 90)
+                        
+                        if mean_abs_accum is None or total_samples == 0:
+                            pairs = []
+                        else:
+                            mean_abs = mean_abs_accum / float(total_samples)
+                            features = list(eval_sample.columns)
+                            pairs = sorted([{'feature': f, 'importance': float(v)} for f, v in zip(features, mean_abs)], key=lambda x: x['importance'], reverse=True)[:20]
+
+                        with shap_jobs_lock:
+                            if key in shap_jobs:
+                                shap_jobs[key]['status'] = 'done'
+                                shap_jobs[key]['result'] = {'feature_importance': pairs, 'total_features': len(eval_sample.columns)}
+                                shap_jobs[key]['progress'] = 100
+                    except Exception as e:
+                        with shap_jobs_lock:
+                            if key in shap_jobs:
+                                shap_jobs[key]['status'] = 'error'
+                                shap_jobs[key]['error'] = str(e)
+                                shap_jobs[key]['progress'] = 100
+
+                # start background thread
+                with shap_jobs_lock:
+                    if shap_jobs[key]['status'] == 'queued':
+                        t = Thread(target=run_shap_job, daemon=True)
+                        shap_jobs[key]['thread'] = t
+                        t.start()
+
+                result['shap'] = {'feature_importance': [], 'status': 'pending'}
+            except Exception as e:
+                result['shap'] = {'feature_importance': [], 'error': str(e)}
+        else:
+            # synchronous SHAP (fallback)
+            try:
+                import shap  # type: ignore
+                import pandas as pd  # ensure we can construct DataFrames inside SHAP wrapper
+                bg_sample = X_train.sample(min(80, len(X_train)), random_state=42) if len(X_train) > 0 else X_test
+                eval_sample = X_test.sample(min(120, len(X_test)), random_state=42) if len(X_test) > 0 else X_train
+                model = wrapper.model
+                feature_names = list(bg_sample.columns)
+                def to_df(Xk):
+                    try:
+                        if isinstance(Xk, pd.DataFrame):
+                            if list(Xk.columns) != feature_names:
+                                try:
+                                    return Xk[feature_names]
+                                except Exception:
+                                    return Xk
+                            return Xk
+                        return pd.DataFrame(Xk, columns=feature_names)
+                    except Exception:
+                        return pd.DataFrame(Xk)
+                if hasattr(model, 'predict_proba'):
+                    f = lambda Xk: model.predict_proba(to_df(Xk))
+                else:
+                    f = lambda Xk: model.predict(to_df(Xk))
+                explainer = shap.KernelExplainer(f, bg_sample)
+                shap_vals = explainer.shap_values(eval_sample, nsamples=80)
+                
+                # Handle multi-class (list of arrays) vs binary/regression (single array)
+                if isinstance(shap_vals, list):
+                    # For multi-class: average absolute SHAP values across all classes
+                    abs_vals = [np.abs(sv) for sv in shap_vals]
+                    arr = np.mean(abs_vals, axis=0)  # Average across classes -> (n_samples, n_features)
+                    mean_abs = arr.mean(axis=0)  # Mean across samples -> (n_features,)
+                else:
+                    # For binary/regression: compute mean of absolute values
+                    arr = np.abs(shap_vals)
+                    # If 3D (n_samples, n_features, n_classes), average across classes
+                    if arr.ndim == 3:
+                        arr = arr.mean(axis=2)  # Average across classes -> (n_samples, n_features)
+                    # Ensure 2D for consistent handling
+                    if arr.ndim == 1:
+                        arr = arr.reshape(-1, 1)
+                    mean_abs = arr.mean(axis=0)
+                
+                features = list(eval_sample.columns)
+                pairs = sorted([{'feature': f, 'importance': float(v)} for f, v in zip(features, mean_abs)], key=lambda x: x['importance'], reverse=True)
+                result['shap'] = {'feature_importance': pairs[:20], 'total_features': len(features)}
+            except Exception as e:
+                    result['shap'] = {'feature_importance': [], 'error': str(e)}
 
         return jsonify(result)
     except Exception as e:
         print(f"Error in model_experiments: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+# Endpoint to poll SHAP job status/result
+@app.route('/api/models/<int:model_id>/experiments/shap', methods=['GET'])
+@login_required
+def model_experiments_shap(model_id):
+    m = ModelEntry.query.get_or_404(model_id)
+    if m.user_id != current_user.id:
+        return jsonify({'error': 'Forbidden'}), 403
+    key = f"{current_user.id}:{m.id}"
+    with shap_jobs_lock:
+        job = shap_jobs.get(key)
+        if not job:
+            return jsonify({'status': 'none', 'progress': 0})
+        out = {'status': job.get('status'), 'progress': job.get('progress', 0)}
+        if job.get('status') == 'done' and job.get('result') is not None:
+            out['shap'] = job['result']
+        if job.get('status') == 'error':
+            out['error'] = job.get('error')
+        return jsonify(out)
 
 # create model from parameters
 @app.route('/api/models', methods=['POST'])
@@ -1631,8 +1919,24 @@ def model_predict(model_id):
     data = request.json
     if not data or 'input' not in data:
         return jsonify({'error': 'Provide "input" in JSON body as list-of-rows'}), 400
-    import numpy as np
-    X_in = np.array(data['input'])
+    # Build a DataFrame with proper column names so Pipelines with encoders work
+    ds = Dataset.query.get_or_404(m.dataset_id)
+    rows = data['input']
+    # Determine column names
+    if ds.input_features:
+        cols = [c.strip() for c in ds.input_features.split(',') if c.strip()]
+    else:
+        # Fallback: try to read dataset columns (excluding target)
+        try:
+            df_full = read_dataset_file(ds.file_path)
+            if ds.target_feature and ds.target_feature in df_full.columns:
+                cols = [c for c in df_full.columns if c != ds.target_feature]
+            else:
+                cols = list(df_full.columns[:-1])
+        except Exception:
+            # Last resort: generic column names
+            cols = [f'f{i}' for i in range(len(rows[0]) if rows else 0)]
+    X_in = pd.DataFrame(rows, columns=cols)
     try:
         preds = wrapper.predict(X_in)
         # convert numpy arrays to python lists
