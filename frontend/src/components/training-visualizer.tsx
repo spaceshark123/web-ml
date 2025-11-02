@@ -73,14 +73,24 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     let max = -Infinity
     for (const m of visibleMetrics) {
       const value = dataKey === 'loss' ? m.loss : m.metric
-      if (value !== undefined) {
+      if (value !== undefined && Number.isFinite(value)) {
         if (value < min) min = value
         if (value > max) max = value
       }
     }
     if (min === Infinity || max === -Infinity) return { min: 0, max: 1 }
-    // Add 10% padding
-    const padding = (max - min) * 0.1
+    // If all values are equal, create a small symmetric span around the value
+    if (max === min) {
+      const base = Math.abs(min)
+      const eps = base > 0 ? base * 0.1 : 0.5 // at least ±0.5 around zero
+      return { min: min - eps, max: max + eps }
+    }
+    // Add 10% padding and ensure a minimum span
+    let padding = (max - min) * 0.1
+    const minSpan = 1e-6
+    if ((max - min + 2 * padding) < minSpan) {
+      padding = (minSpan - (max - min)) / 2
+    }
     return { min: min - padding, max: max + padding }
   }
 
@@ -145,7 +155,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     }
   }, [isTraining, xDomain, metrics])
 
-  // Initialize domain when metrics first arrive or when domain becomes invalid
+  // Initialize and auto-extend domain while training so X-axis labels advance each epoch
   useEffect(() => {
     if (metrics.length === 0) {
       setXDomain(null)
@@ -153,12 +163,14 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       setMetricYDomain(null)
       return
     }
-    if (!xDomain) {
-      const { min, max } = getDataBounds()
+    const { min, max } = getDataBounds()
+    if (isTraining) {
+      // While training, always follow the data bounds so new epochs are visible
+      setXDomain([min, max])
+    } else if (!xDomain) {
       setXDomain([min, max])
     } else {
-      // Ensure current domain is within data bounds
-      const { min, max } = getDataBounds()
+      // Ensure current domain is within data bounds; if invalid, reset
       const clampedMin = Math.max(xDomain[0], min)
       const clampedMax = Math.min(xDomain[1], max)
       if (clampedMax - clampedMin <= 0) {
@@ -174,7 +186,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
       setMetricYDomain([metricYBounds.min, metricYBounds.max])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metrics, xDomain])
+  }, [metrics, xDomain, isTraining])
 
   const clampDomain = (domain: [number, number]): [number, number] => {
     const { min, max } = getDataBounds()
@@ -599,8 +611,9 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                       label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
                     />
                     <YAxis 
-                      label={{ value: "Loss", angle: -90, position: "insideLeft" }}
+                      label={{ value: "Loss", angle: -90, position: "left"}}
                       domain={lossYDomain ? [lossYDomain[0], lossYDomain[1]] : ['auto', 'auto']}
+                      tickFormatter={(v) => Number(v).toFixed(4)}
                     />
                     <Tooltip formatter={(value) => value.toString()} />
                     <Legend />
@@ -658,8 +671,9 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                         label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
                       />
                       <YAxis 
-                        label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "insideLeft" }}
+                        label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "left" }}
                         domain={metricYDomain ? [metricYDomain[0], metricYDomain[1]] : ['auto', 'auto']}
+                        tickFormatter={(v) => isRegression ? Number(v).toFixed(4) : `${(Number(v) * 100).toFixed(2)}%`}
                       />
                       <Tooltip formatter={(value) => isRegression ? value.toString() : `${(Number(value) * 100).toFixed(2)}%`} />
                       <Legend />

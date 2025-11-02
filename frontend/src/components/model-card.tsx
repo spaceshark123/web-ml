@@ -66,7 +66,7 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
 			<CardHeader>
-				<CardTitle>{name}</CardTitle>
+				<CardTitle title={name} className="truncate">{name}</CardTitle>
 				<CardDescription>{description}</CardDescription>
 			</CardHeader>
 

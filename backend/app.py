@@ -204,25 +204,63 @@ class ModelWrapper:
         # For MLP with streaming support
         if self.model_type == 'mlp' and progress_callback:
             print(f"[MLP Training] Starting epoch-wise training with progress callback (start_epoch={start_epoch})")
-            
+
             # Get max iterations from params (NOT from model which may have stale value)
             max_iter = self.params.get('max_iter', 200)
             print(f"[MLP Training] Max iterations from params: {max_iter}")
-            
-            # Enable warm_start and set max_iter to 1 for incremental training
-            self.model.warm_start = True
-            self.model.n_iter_no_change = max_iter  # Disable early stopping for streaming
-            
+
+            # If the model is a Pipeline (classification path), adjust the final estimator's params
+            estimator = None
+            is_pipeline = hasattr(self.model, 'named_steps') and 'estimator' in getattr(self.model, 'named_steps', {})
+            try:
+                if is_pipeline:
+                    # Configure warm start and 1-iteration training per fit call on the estimator
+                    self.model.set_params(estimator__warm_start=True)
+                    # Disable early stopping to avoid validation-split delays and premature stop
+                    self.model.set_params(estimator__early_stopping=False)
+                    self.model.set_params(estimator__max_iter=1)
+                    estimator = self.model.named_steps['estimator']
+                    # Fit the preprocessor ONCE to avoid repeated expensive refits per epoch
+                    preprocessor = self.model.named_steps.get('preprocess', None)
+                    X_fit = X
+                    if preprocessor is not None:
+                        try:
+                            preprocessor.fit(X, y)
+                            X_fit = preprocessor.transform(X)
+                        except Exception as pe:
+                            print(f"[MLP Training] Preprocessor fit/transform failed, falling back to pipeline.fit each epoch: {pe}")
+                            preprocessor = None
+                    # Store prepared features for reuse in the loop
+                    prepared = {'X': X_fit, 'pre': preprocessor}
+                else:
+                    # MLPRegressor path (no pipeline)
+                    self.model.warm_start = True
+                    # Disable early stopping (MLP defaults to False, but be explicit)
+                    if hasattr(self.model, 'early_stopping'):
+                        self.model.early_stopping = False
+                    # Train one iteration per fit call
+                    self.model.max_iter = 1
+                    estimator = self.model
+                    prepared = {'X': X}
+            except Exception as e:
+                print(f"[MLP Training] Warning: Failed to configure warm-start incremental training: {e}")
+                estimator = self.model
+                prepared = {'X': X}
+
             # Track previous loss for convergence
             prev_loss = float('inf')
-            tol = self.model.tol if hasattr(self.model, 'tol') else 1e-4
-            
+            # Pull tolerance from the actual estimator if available
+            try:
+                tol = getattr(estimator, 'tol', 1e-4)
+            except Exception:
+                tol = 1e-4
+
             for epoch in range(start_epoch, max_iter):
                 # Check if early stop was requested
                 if early_stop_check and early_stop_check():
                     print(f"[MLP Training] Early stop requested - saving progress at epoch {self.final_epoch}")
                     break
-                
+
                 # Check if training is paused
                 if pause_check and pause_check():
                     print(f"[MLP Training] Training paused at epoch {epoch + 1}")
@@ -233,22 +271,40 @@ class ModelWrapper:
                             break
                         time.sleep(0.5)
                     print(f"[MLP Training] Training resumed at epoch {epoch + 1}")
-                
-                # Set max_iter to train one more epoch
-                self.model.max_iter = epoch + 1
-                
-                # Train (with warm_start, this continues from previous state)
-                self.model.fit(X, y)
-                
+
+                # Train exactly one iteration per call (warm_start keeps weights)
+                try:
+                    if is_pipeline and prepared.get('pre') is not None:
+                        # Train only the estimator with pre-transformed features
+                        estimator.fit(prepared['X'], y)
+                    else:
+                        # Fallback: train the model (pipeline or raw estimator)
+                        self.model.fit(X, y)
+                except Exception as fit_err:
+                    print(f"[MLP Training] Fit error at epoch {epoch + 1}: {fit_err}")
+                    raise
+
                 # Calculate metrics for this epoch
-                train_preds = self.model.predict(X)
-                train_loss = self.model.loss_ if hasattr(self.model, 'loss_') else 0.0
+                if is_pipeline and prepared.get('pre') is not None:
+                    train_preds = estimator.predict(prepared['X'])
+                else:
+                    train_preds = self.model.predict(X)
+                # Get loss from the underlying estimator when using a Pipeline
+                try:
+                    current_estimator = estimator
+                    # Refresh reference in case Pipeline cloned estimator internally
+                    if is_pipeline and hasattr(self.model, 'named_steps') and 'estimator' in self.model.named_steps:
+                        current_estimator = self.model.named_steps['estimator']
+                    train_loss = getattr(current_estimator, 'loss_', 0.0)
+                except Exception:
+                    train_loss = 0.0
+
                 if self.regression:
                     train_metric = mean_squared_error(y, train_preds)
                 else:
                     train_metric = accuracy_score(y, train_preds)
 
-                print(f"[MLP Training] Epoch {epoch + 1}/{max_iter} - Loss: {train_loss:.6f}, {'MSE' if self.regression else 'Accuracy'}: {train_metric:.4f}")
+                print(f"[MLP Training] Epoch {epoch + 1}/{max_iter} - Loss: {float(train_loss):.6f}, {'MSE' if self.regression else 'Accuracy'}: {train_metric:.4f}")
 
                 # Send progress update with regression flag
                 progress_callback({
@@ -257,17 +313,17 @@ class ModelWrapper:
                     'metric': float(train_metric),
                     'regression': self.regression
                 })
-                
+
                 # Update final epoch after successful completion
                 self.final_epoch = epoch + 1
-                
+
                 # Check for convergence (loss not improving)
-                if epoch > start_epoch and abs(prev_loss - train_loss) < tol:
+                if epoch > start_epoch and abs(prev_loss - float(train_loss)) < tol:
                     print(f"[MLP Training] Converged at epoch {epoch + 1}")
                     break
-                
-                prev_loss = train_loss
-            
+
+                prev_loss = float(train_loss)
+
             print(f"[MLP Training] Training completed at epoch {self.final_epoch}")
         else:
             # For scikit-learn style models (standard training)

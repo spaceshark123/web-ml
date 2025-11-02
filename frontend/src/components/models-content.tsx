@@ -39,6 +39,7 @@ export function ModelsContent() {
 	const [searchQuery, setSearchQuery] = useState("")
 	const [filterType, setFilterType] = useState("all")
 	const [selectedDatasets, setSelectedDatasets] = useState<number[]>([])
+	const [sortKey, setSortKey] = useState<'created' | 'name' | 'task'>("created")
 
 
 	const fetchModels = async () => {
@@ -102,6 +103,24 @@ export function ModelsContent() {
 		const matchesDataset = selectedDatasets.length === 0 || selectedDatasets.includes(model.dataset_id);
 		return matchesSearch && matchesType && matchesDataset;
 	});
+
+	// Build datasetId -> regression map for task sort
+	const datasetTaskMap = new Map<number, boolean>(datasets.map(d => [d.id, (d as any).regression]))
+
+	const sortedModels = [...filteredModels].sort((a, b) => {
+		if (sortKey === 'created') {
+			const da = a.created_at ? new Date(a.created_at).getTime() : 0
+			const db = b.created_at ? new Date(b.created_at).getTime() : 0
+			return db - da // newest first
+		}
+		if (sortKey === 'name') {
+			return a.name.localeCompare(b.name)
+		}
+		// task: classification before regression
+		const ta = datasetTaskMap.get(a.dataset_id) ? 1 : 0
+		const tb = datasetTaskMap.get(b.dataset_id) ? 1 : 0
+		return ta - tb
+	})
 
 	const fetchDatasets = async () => {
 		try {
@@ -174,6 +193,16 @@ export function ModelsContent() {
 							<SelectItem value="mlp" className="hover:bg-gray-200">MLP</SelectItem>
 						</SelectContent>
 					</Select>
+					<Select value={sortKey} onValueChange={(v) => setSortKey(v as any)}>
+						<SelectTrigger className="w-40 bg-white border-gray-300">
+							<SelectValue placeholder="Sort By" />
+						</SelectTrigger>
+						<SelectContent className="bg-white">
+							<SelectItem value="created" className="hover:bg-gray-200">Created Date</SelectItem>
+							<SelectItem value="name" className="hover:bg-gray-200">Name</SelectItem>
+							<SelectItem value="task" className="hover:bg-gray-200">Task Type</SelectItem>
+						</SelectContent>
+					</Select>
 					<Button
 						variant="outline"
 						className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent"
@@ -181,6 +210,7 @@ export function ModelsContent() {
 							setSearchQuery("");
 							setFilterType("all");
 							setSelectedDatasets([]);
+							setSortKey('created')
 						}}
 					>
 						Clear Filters
@@ -246,12 +276,12 @@ export function ModelsContent() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-						{filteredModels.length === 0 ? (
+						{sortedModels.length === 0 ? (
 							<div className="col-span-full text-center py-12">
 								<p className="text-gray-500">No models found.</p>
 							</div>
 						) : (
-							filteredModels.map((model) => {
+							sortedModels.map((model) => {
 								const handleDelete = async () => {
 									const ok = window.confirm(`Delete model "${model.name}"? This will remove the file and cannot be undone.`)
 									if (!ok) return

@@ -2,10 +2,8 @@ import { CreateModelDialog } from "./create-model-dialog"
 import { Button } from "./ui/button"
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
-	CardFooter,
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card"
@@ -32,7 +30,7 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
 			<CardHeader>
-				<CardTitle>{name}</CardTitle>
+				<CardTitle title={name} className="truncate">{name}</CardTitle>
 				<CardDescription>{description}</CardDescription>
 			</CardHeader>
 

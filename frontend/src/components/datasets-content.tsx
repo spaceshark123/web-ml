@@ -32,6 +32,7 @@ export function DatasetsContent() {
 	const [error, setError] = useState<string | null>(null)
 	const [searchQuery, setSearchQuery] = useState("")
 	const [selectedType, setSelectedType] = useState<string>("all")
+	const [sortKey, setSortKey] = useState<'created' | 'name' | 'task'>("created")
 
 	const fetchDatasets = async () => {
 		setLoading(true)
@@ -94,6 +95,22 @@ export function DatasetsContent() {
 		return matchesSearch && matchesType;
 	});
 
+	const sortedDatasets = [...filteredDatasets].sort((a, b) => {
+		if (sortKey === 'created') {
+			const da = a.upload_date ? new Date(a.upload_date).getTime() : 0
+			const db = b.upload_date ? new Date(b.upload_date).getTime() : 0
+			// Newest first
+			return db - da
+		}
+		if (sortKey === 'name') {
+			return a.name.localeCompare(b.name)
+		}
+		// task: classification before regression
+		const ta = a.regression ? 1 : 0
+		const tb = b.regression ? 1 : 0
+		return ta - tb
+	})
+
 	useEffect(() => {
 		fetchDatasets()
 	}, [])
@@ -144,12 +161,23 @@ export function DatasetsContent() {
 							<SelectItem value="json" className="hover:bg-gray-200 cursor-pointer">JSON</SelectItem>
 						</SelectContent>
 					</Select>
+					<Select value={sortKey} onValueChange={(v) => setSortKey(v as any)}>
+						<SelectTrigger className="w-40 bg-white border-gray-300 cursor-pointer">
+							<SelectValue placeholder="Sort By" />
+						</SelectTrigger>
+						<SelectContent className="bg-white">
+							<SelectItem value="created" className="hover:bg-gray-200 cursor-pointer">Created Date</SelectItem>
+							<SelectItem value="name" className="hover:bg-gray-200 cursor-pointer">Name</SelectItem>
+							<SelectItem value="task" className="hover:bg-gray-200 cursor-pointer">Task Type</SelectItem>
+						</SelectContent>
+					</Select>
 					<Button
 						variant="outline"
 						className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent cursor-pointer"
 						onClick={() => {
 							setSearchQuery("")
 							setSelectedType("all")
+							setSortKey('created')
 						}}
 					>
 						Clear Filters
@@ -174,13 +202,13 @@ export function DatasetsContent() {
 						</Button>
 					</div>
 				) : (
-					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-						{filteredDatasets.length === 0 ? (
+						<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+							{sortedDatasets.length === 0 ? (
 								<div className="col-span-full text-center py-12">
 									<p className="text-gray-500">No datasets found.</p>
 								</div>
 							) : (
-								filteredDatasets.map((dataset) => {
+								sortedDatasets.map((dataset) => {
 								const handleDelete = async () => {
 									const ok = window.confirm(`Delete dataset "${dataset.name}"? This will remove the file and cannot be undone.`)
 									if (!ok) return
