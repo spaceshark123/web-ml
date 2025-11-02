@@ -131,14 +131,9 @@ export function ModelCard({ id, name, description, model_type, created_at, datas
 							}}
 						/>
 					</div>
-					<div className="grid grid-cols-2 gap-2">
-						<Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent">
-							View
-						</Button>
-						<Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent" onClick={onDownload}>
-							Download
-						</Button>
-					</div>
+					<Button variant="outline" className="w-full border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent" onClick={onDownload}>
+						Download
+					</Button>
 					<Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700 text-white" onClick={onDelete}>
 						Delete
 					</Button>
