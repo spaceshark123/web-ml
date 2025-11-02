@@ -278,7 +278,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
               {hasData && (
                 <p className="text-xs text-gray-600">
                   Epoch {lastMetric.epoch} • Loss: {lastMetric.loss.toFixed(4)}
-                  {lastMetric.metric !== undefined && ` • ${isRegression ? "R²" : "Accuracy"}: ${(!isRegression ? (lastMetric.metric * 100).toFixed(2) + '%' : lastMetric.metric.toFixed(4))}`}
+                  {lastMetric.metric !== undefined && ` • ${isRegression ? "MSE" : "Accuracy"}: ${(!isRegression ? (lastMetric.metric * 100).toFixed(2) + '%' : lastMetric.metric.toFixed(4))}`}
                 </p>
               )}
             </div>
@@ -353,7 +353,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
 
       {/* Metrics Charts */}
       {hasData && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 select-none">
+        <div className="grid grid-cols-1 gap-4 select-none">
           {/* Loss Chart */}
           <Card>
             <CardHeader>
@@ -414,8 +414,8 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
           {metrics[0].metric !== undefined && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Training {isRegression ? "R² / Metric" : "Accuracy"}</CardTitle>
-                <CardDescription>{isRegression ? "R² per epoch" : "Accuracy per epoch"}</CardDescription>
+                <CardTitle className="text-lg">Training {isRegression ? "MSE" : "Accuracy"}</CardTitle>
+                <CardDescription>{isRegression ? "MSE per epoch" : "Accuracy per epoch"}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div
@@ -439,7 +439,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
                         domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
                         label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
                       />
-                      <YAxis label={{ value: isRegression ? "R²" : "Accuracy", angle: -90, position: "insideLeft" }} />
+                      <YAxis label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "insideLeft" }} />
                       <Tooltip formatter={(value) => isRegression ? value.toString() : `${(Number(value) * 100).toFixed(2)}%`} />
                       <Legend />
                       <Line
@@ -447,7 +447,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
                         dataKey="metric"
                         stroke="#22c55e"
                         dot={false}
-                        name={`Training ${isRegression ? "R²" : "Accuracy"}`}
+                        name={`Training ${isRegression ? "MSE" : "Accuracy"}`}
                         strokeWidth={2}
                       />
                       {metrics[0].val_metric !== undefined && (
@@ -456,7 +456,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onCancel, o
                           dataKey="val_metric"
                           stroke="#16a34a"
                           dot={false}
-                          name={`Validation ${isRegression ? "R²" : "Accuracy"}`}
+                          name={`Validation ${isRegression ? "MSE" : "Accuracy"}`}
                           strokeWidth={2}
                           strokeDasharray="5 5"
                         />
