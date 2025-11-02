@@ -41,6 +41,8 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 	const [regression, setRegression] = useState(false)
 	const [progressPercent, setProgressPercent] = useState<number>(0)
 	const nonMlpSocketRef = useRef<ReturnType<typeof io> | null>(null)
+	const hasShownAlertRef = useRef<boolean>(false)
+	const simIntervalRef = useRef<number | null>(null)
 
 	const getRegression = async (datasetId: number) => {
 		try {
@@ -72,12 +74,13 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 	}, [model.dataset_id])
 
 	// hyperparameters state
-	const [hyperparameters, setHyperparameters] = useState<Record<string, any>>({})
+	const [hyperparameters] = useState<Record<string, any>>({})
 
 	const handleTrain = async () => {
 		setError("")
 		setIsTraining(true)
 		setProgressPercent(0)
+		hasShownAlertRef.current = false
 		
 		// For MLP, use WebSocket streaming
 		if (model.model_type === 'mlp') {
@@ -152,37 +155,20 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			return
 		}
 		
-		// For other models, use regular POST but listen for progress over WebSocket
+		// For other models, use regular POST and simulate progress locally until completion
 		try {
-			// establish socket listener for progress updates
-			if (!nonMlpSocketRef.current) {
-				const socket = io("http://localhost:5000", { transports: ['websocket', 'polling'] })
-				nonMlpSocketRef.current = socket
-				socket.on('non_mlp_progress', (data: any) => {
-					if (!data || data.model_id !== model.id) return
-					if (typeof data.percent === 'number') {
-						setProgressPercent(Math.max(0, Math.min(100, Math.round(data.percent))))
-					}
-				})
-				socket.on('non_mlp_training_complete', (data: any) => {
-					if (!data || data.model_id !== model.id) return
-					setProgressPercent(100)
-					setIsTraining(false)
-					try { alert('Training completed successfully!') } catch (_) {}
-					// cleanup and close
-					try { nonMlpSocketRef.current?.disconnect() } catch (_) {}
-					nonMlpSocketRef.current = null
-					setOpen(false)
-					onTrainSuccess?.()
-				})
-				socket.on('non_mlp_training_error', (data: any) => {
-					if (!data || data.model_id !== model.id) return
-					setError(data.message || 'Training failed')
-					setIsTraining(false)
-					try { nonMlpSocketRef.current?.disconnect() } catch (_) {}
-					nonMlpSocketRef.current = null
-				})
+			// start simulated progress (up to 95%)
+			if (simIntervalRef.current !== null) {
+				window.clearInterval(simIntervalRef.current)
+				simIntervalRef.current = null
 			}
+			simIntervalRef.current = window.setInterval(() => {
+				setProgressPercent((prev) => {
+					// increment 1-3% per tick up to 95%
+					const inc = Math.floor(Math.random() * 3) + 1
+					return Math.min(95, prev + inc)
+				})
+			}, 250)
 
 			const body: Record<string, any> = {}
 			if (Object.keys(hyperparameters).length > 0) {
@@ -217,23 +203,34 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			if (data.error) {
 				setError(data.error)
 				setIsTraining(false)
-				try { nonMlpSocketRef.current?.disconnect() } catch (_) {}
-				nonMlpSocketRef.current = null
+				if (simIntervalRef.current !== null) {
+					window.clearInterval(simIntervalRef.current)
+					simIntervalRef.current = null
+				}
 				return
 			}
-			// If we've reached here before the completion event, ensure UI reflects completion
+			// Complete: stop simulation, set to 100, then show single alert after a brief delay
+			if (simIntervalRef.current !== null) {
+				window.clearInterval(simIntervalRef.current)
+				simIntervalRef.current = null
+			}
 			setProgressPercent(100)
-			setIsTraining(false)
-			try { alert("Training completed successfully!") } catch (_) {}
-			try { nonMlpSocketRef.current?.disconnect() } catch (_) {}
-			nonMlpSocketRef.current = null
-			setOpen(false)
-			onTrainSuccess?.()
+			setTimeout(() => {
+				if (!hasShownAlertRef.current) {
+					hasShownAlertRef.current = true
+					setIsTraining(false)
+					try { alert('Training completed successfully!') } catch (_) {}
+					setOpen(false)
+					onTrainSuccess?.()
+				}
+			}, 300)
 		} catch (error) {
 			setError("Failed to start training. Please try again.")
 			setIsTraining(false)
-			try { nonMlpSocketRef.current?.disconnect() } catch (_) {}
-			nonMlpSocketRef.current = null
+			if (simIntervalRef.current !== null) {
+				window.clearInterval(simIntervalRef.current)
+				simIntervalRef.current = null
+			}
 			return
 		}
 	}
@@ -309,8 +306,13 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			setEarlyStopped(false)
 			setStartPaused(false)
 			setProgressPercent(0)
+			hasShownAlertRef.current = false
 			try { nonMlpSocketRef.current?.disconnect() } catch (_) {}
 			nonMlpSocketRef.current = null
+			if (simIntervalRef.current !== null) {
+				window.clearInterval(simIntervalRef.current)
+				simIntervalRef.current = null
+			}
 		}
 	}
 

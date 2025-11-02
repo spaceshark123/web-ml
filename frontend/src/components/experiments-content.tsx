@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react"
 import { Button } from "./ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { API_BASE_URL } from "@/constants"
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar } from "recharts"
 import { Label } from "@/components/ui/label"
@@ -27,6 +27,36 @@ interface ExperimentsResponse {
 	confusion_matrix?: { labels: string[]; matrix: number[][] }
 	imbalance?: { minority_class_percentage: number; imbalance_ratio: number; is_imbalanced: boolean }
 	shap?: { feature_importance: { feature: string; importance: number }[]; total_features?: number; error?: string }
+}
+
+interface SavedExperiment {
+	id: string
+	timestamp: number
+	data: ExperimentsResponse
+}
+
+// LocalStorage helpers for experiment history
+const EXPERIMENT_HISTORY_KEY = 'web-ml-experiment-history'
+
+function saveExperimentToHistory(data: ExperimentsResponse) {
+	const history = loadExperimentHistory()
+	const newEntry: SavedExperiment = {
+		id: `${data.model_id}-${Date.now()}`,
+		timestamp: Date.now(),
+		data
+	}
+	// Add to front, keep all experiments (unlimited storage)
+	const updated = [newEntry, ...history]
+	localStorage.setItem(EXPERIMENT_HISTORY_KEY, JSON.stringify(updated))
+}
+
+function loadExperimentHistory(): SavedExperiment[] {
+	try {
+		const raw = localStorage.getItem(EXPERIMENT_HISTORY_KEY)
+		return raw ? JSON.parse(raw) : []
+	} catch {
+		return []
+	}
 }
 
 // Custom tooltip for ROC curves was inlined at usage sites to avoid scope/runtime issues.
@@ -132,10 +162,26 @@ export function ExperimentsContent() {
 	const [loading, setLoading] = useState(false)
 	const [shapProgress, setShapProgress] = useState<number>(0)
 	const [shapPollingId, setShapPollingId] = useState<number | null>(null)
+	const [experimentHistory, setExperimentHistory] = useState<SavedExperiment[]>([])
+	const [searchQuery, setSearchQuery] = useState<string>("")
+	const [showAllHistory, setShowAllHistory] = useState<boolean>(false)
+	const [searchParams] = useSearchParams()
 
 	useEffect(() => {
 		fetchModels()
 		fetchDatasets()
+		// Load experiment history from localStorage on mount
+		const history = loadExperimentHistory()
+		setExperimentHistory(history)
+		
+		// Check if experiment ID is in URL query params (from dashboard link)
+		const experimentId = searchParams.get('id')
+		if (experimentId) {
+			const experiment = history.find(exp => exp.id === experimentId)
+			if (experiment) {
+				setExperimentData(experiment.data)
+			}
+		}
 	}, [])
 
 	const fetchDatasets = async () => {
@@ -217,6 +263,10 @@ export function ExperimentsContent() {
 			console.log('ROC curve data:', data.metrics?.roc_curve)
 			console.log('ROC curves OvR:', (data.metrics as any)?.roc_curves_ovr)
 			setExperimentData(data)
+			
+			// Save experiment to history
+			saveExperimentToHistory(data)
+			setExperimentHistory(loadExperimentHistory())
 			
 			// If SHAP is pending, start polling progress
 			if (data && (data as any).shap && (data as any).shap.status === 'pending') {
@@ -307,7 +357,7 @@ export function ExperimentsContent() {
 
 			<div className="p-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
 				{/* Selection */}
-				<div className="lg:col-span-1">
+				<div className="lg:col-span-1 space-y-4">
 					<Card className="p-6">
 						<h3 className="text-lg font-semibold mb-4">Select Model/Dataset</h3>
 
@@ -379,6 +429,84 @@ export function ExperimentsContent() {
 							{loading && <p>Loading...</p>}
 						</div>
 					</Card>
+
+					{/* Experiment History */}
+					<Card className="p-6">
+						<div className="flex items-center justify-between mb-4">
+							<h3 className="text-lg font-semibold">Recent Experiments</h3>
+							{experimentData && (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setExperimentData(null)}
+									className="text-xs"
+								>
+									Clear View
+								</Button>
+							)}
+						</div>
+						
+						{/* Search */}
+						<input
+							type="text"
+							placeholder="Search experiments..."
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+							className="w-full px-3 py-2 mb-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+						/>
+
+						{/* History List */}
+						<div className="space-y-2 max-h-64 overflow-y-auto">
+							{experimentHistory
+								.filter((exp) => {
+									if (!searchQuery.trim()) return true
+									const query = searchQuery.toLowerCase()
+									return (
+										exp.data.model_name.toLowerCase().includes(query) ||
+										exp.data.model_type.toLowerCase().includes(query) ||
+										exp.data.type.toLowerCase().includes(query)
+									)
+								})
+								.slice(0, showAllHistory ? undefined : 3)
+								.map((exp) => {
+									const date = new Date(exp.timestamp)
+									const timeStr = date.toLocaleString('en-US', {
+										month: 'short',
+										day: 'numeric',
+										hour: '2-digit',
+										minute: '2-digit'
+									})
+									return (
+										<div
+											key={exp.id}
+											onClick={() => setExperimentData(exp.data)}
+											className="p-3 bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded cursor-pointer transition-colors"
+										>
+											<div className="font-medium text-sm text-gray-900">{exp.data.model_name}</div>
+											<div className="text-xs text-gray-600 mt-1">
+												{exp.data.model_type} • {exp.data.type}
+											</div>
+											<div className="text-xs text-gray-500 mt-1">{timeStr}</div>
+										</div>
+									)
+								})}
+							{experimentHistory.length === 0 && (
+								<p className="text-sm text-gray-500 text-center py-4">No experiments yet</p>
+							)}
+						</div>
+
+						{/* Show More/Less toggle */}
+						{experimentHistory.length > 3 && (
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => setShowAllHistory(!showAllHistory)}
+								className="w-full mt-2 text-xs text-blue-600 hover:text-blue-700"
+							>
+								{showAllHistory ? `Show Less` : `Show ${experimentHistory.length - 3} More`}
+							</Button>
+						)}
+					</Card>
 				</div>
 
 				{/* Comparison Results */}
@@ -423,13 +551,13 @@ export function ExperimentsContent() {
 																)}
 															</div>
 														) : (
-															<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-																{['mse','mae','r2'].map((k) => (
+																<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+																{['mse','rmse','mae','r2'].map((k) => (
 																	experimentData.metrics[k] !== undefined && (
 																		<Card key={k} className="p-4">
-																			<CardTitle className="text-sm uppercase">{k}</CardTitle>
+																				<CardTitle className="text-sm uppercase">{k}</CardTitle>
 																			<CardContent className="pt-2">
-																				<div className="text-2xl font-semibold">{Number(experimentData.metrics[k]).toFixed(k==='r2'?3:4)}</div>
+																					<div className="text-2xl font-semibold">{Number(experimentData.metrics[k]).toFixed(k==='r2'?3:4)}</div>
 																			</CardContent>
 																		</Card>
 																	)

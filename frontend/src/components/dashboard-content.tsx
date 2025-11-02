@@ -4,15 +4,39 @@ import { Database, Settings, FlaskConical, TrendingUp, Play, Eye } from "lucide-
 import { Button } from "./ui/button"
 import { Card } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import type { Model } from "./models-content"
 import type { Dataset } from "./datasets-content"
 
+// Import experiment history helpers
+const EXPERIMENT_HISTORY_KEY = 'web-ml-experiment-history'
+
+interface SavedExperiment {
+	id: string
+	timestamp: number
+	data: {
+		model_id: number
+		model_name: string
+		model_type: string
+		type: 'classification' | 'regression'
+	}
+}
+
+function loadExperimentHistory(): SavedExperiment[] {
+	try {
+		const raw = localStorage.getItem(EXPERIMENT_HISTORY_KEY)
+		return raw ? JSON.parse(raw) : []
+	} catch {
+		return []
+	}
+}
+
 export function DashboardContent() {
-	let numDatasets = 0
 	const [datasets, setDatasets] = useState<Dataset[]>([])
 	const [models, setModels] = useState<Model[]>([])
+	const [experiments, setExperiments] = useState<SavedExperiment[]>([])
+	const navigate = useNavigate()
 
 	const fetchDatasets = async () => {
 		try {
@@ -63,6 +87,7 @@ export function DashboardContent() {
 	useEffect(() => {
 		fetchDatasets()
 		fetchModels()
+		setExperiments(loadExperimentHistory())
 	}, [])
 
 	return (
@@ -86,7 +111,7 @@ export function DashboardContent() {
 				/>
 				<StatCard
 					icon={<FlaskConical className="w-10 h-10" />}
-					value="0"
+					value={experiments.length.toString()}
 					label="Experiments Completed"
 					gradient="from-[#8B5FBF] to-[#9B4FAF]"
 				/>
@@ -137,7 +162,7 @@ export function DashboardContent() {
 			</Card>
 
 			{/* Bottom Section */}
-			<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 				{/* Recent Datasets */}
 				<Card className="p-6 space-y-4 shadow-sm">
 					<div className="flex items-center justify-between">
@@ -150,7 +175,7 @@ export function DashboardContent() {
 
 					<div className="space-y-4">
 						{datasets.slice(0, 3).map((dataset) => (
-						<div className="flex items-start justify-between py-3 border-b">
+						<div key={dataset.id} className="flex items-start justify-between py-3 border-b">
 							<div>
 								<h3 className="font-semibold">{dataset.name}</h3>
 								<p className="text-sm text-muted-foreground">{dataset.rows} rows, {dataset.features} columns</p>
@@ -173,22 +198,62 @@ export function DashboardContent() {
 					</div>
 
 					<div className="space-y-3">
-						<ModelItem
-							title="Linear Regression"
-							dataset="titanic"
-							type="Regression"
-							time="2 weeks, 1 day ago"
-						/>
-						<ModelItem
-							title="MLP Classifier"
-							dataset="iris"
-							type="Classification"
-							time="2 weeks, 1 day ago"
-						/>
+						{models.slice(0, 3).map((model) => (
+							<div key={model.id} className="flex items-start justify-between py-3 border-b last:border-0">
+								<div className="flex-1">
+									<div className="flex items-center gap-2 mb-1">
+										<h3 className="font-semibold text-sm">{model.name}</h3>
+										<span className="px-2 py-0.5 bg-gray-600 text-white text-xs rounded">{model.model_type}</span>
+									</div>
+									<p className="text-sm text-muted-foreground">Dataset ID: {model.dataset_id}</p>
+								</div>
+								<span className="text-sm text-muted-foreground whitespace-nowrap ml-4">{new Date(model.created_at).toLocaleDateString()}</span>
+							</div>
+						))}
 					</div>
 
 					<Button variant="outline" className="w-full border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent" asChild>
 						<Link to="/models">View All Models</Link>
+					</Button>
+				</Card>
+
+				{/* Recent Experiments */}
+				<Card className="p-6 space-y-4 shadow-sm">
+					<div className="flex items-center gap-2">
+						<FlaskConical className="w-5 h-5 text-purple-600" />
+						<h2 className="text-xl font-semibold">Recent Experiments</h2>
+					</div>
+
+					<div className="space-y-3">
+						{experiments.slice(0, 3).map((exp) => {
+							const date = new Date(exp.timestamp)
+							const timeStr = date.toLocaleString('en-US', {
+								month: 'short',
+								day: 'numeric',
+								hour: '2-digit',
+								minute: '2-digit'
+							})
+							return (
+								<div
+									key={exp.id}
+									onClick={() => navigate(`/experiments?id=${exp.id}`)}
+									className="p-3 bg-gray-50 hover:bg-purple-50 border border-gray-200 rounded cursor-pointer transition-colors"
+								>
+									<div className="font-semibold text-sm text-gray-900">{exp.data.model_name}</div>
+									<div className="text-xs text-gray-600 mt-1">
+										{exp.data.model_type} • {exp.data.type}
+									</div>
+									<div className="text-xs text-gray-500 mt-1">{timeStr}</div>
+								</div>
+							)
+						})}
+						{experiments.length === 0 && (
+							<p className="text-sm text-gray-500 text-center py-8">No experiments yet</p>
+						)}
+					</div>
+
+					<Button variant="outline" className="w-full border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent" asChild>
+						<Link to="/experiments">View All Experiments</Link>
 					</Button>
 				</Card>
 			</div>
@@ -210,25 +275,5 @@ function StatCard({
 				<div className="text-sm font-medium opacity-90">{label}</div>
 			</div>
 		</Card>
-	)
-}
-
-function ModelItem({
-	title,
-	dataset,
-	type,
-	time,
-}: { title: string; dataset: string; type: string; time: string }) {
-	return (
-		<div className="flex items-start justify-between py-3 border-b last:border-0">
-			<div className="flex-1">
-				<div className="flex items-center gap-2 mb-1">
-					<h3 className="font-semibold text-sm">{title}</h3>
-					<span className="px-2 py-0.5 bg-gray-600 text-white text-xs rounded">{type}</span>
-				</div>
-				<p className="text-sm text-muted-foreground">{dataset}</p>
-			</div>
-			<span className="text-sm text-muted-foreground whitespace-nowrap ml-4">{time}</span>
-		</div>
 	)
 }

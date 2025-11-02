@@ -15,6 +15,7 @@ interface Model {
   model_type: string
   dataset_id?: number
   metrics: Record<string, any>
+  type?: 'classification' | 'regression'
 }
 
 interface DetailedModel extends Model {
@@ -36,6 +37,7 @@ export function CompareContent() {
   const [loading, setLoading] = useState(false)
   const [sortBy, setSortBy] = useState<string>("created_at")
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
+  const [selectedTask, setSelectedTask] = useState<'both' | 'classification' | 'regression'>('both')
 
   useEffect(() => {
     fetchModels()
@@ -105,8 +107,9 @@ export function CompareContent() {
   })
 
   const filteredModels = sortedModels.filter((model) => {
-    if (selectedDataset === "all") return true
-    return model.dataset_id === Number.parseInt(selectedDataset)
+    const datasetOk = selectedDataset === "all" || model.dataset_id === Number.parseInt(selectedDataset)
+    const taskOk = selectedTask === 'both' || (model.type === selectedTask)
+    return datasetOk && taskOk
   })
 
   const getMetricComparison = (_: string, val1: any, val2: any) => {
@@ -230,7 +233,6 @@ export function CompareContent() {
                   </SelectContent>
                 </Select>
               </div>
-
               <Button
                 onClick={handleCompare}
                 disabled={loading}
@@ -262,11 +264,9 @@ export function CompareContent() {
                   </CardHeader>
                 </Card>
               </div>
-
               {/* Metrics Comparison */}
               <Card className="p-6">
                 <h3 className="text-lg font-semibold mb-4">Performance Metrics</h3>
-
                 {/* Classification Metrics */}
                 {(comparisonData.model1.metrics.accuracy !== undefined ||
                   comparisonData.model2.metrics.accuracy !== undefined) && (
@@ -462,6 +462,17 @@ export function CompareContent() {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-2xl font-bold text-gray-900">Models Leaderboard</h3>
             <div className="flex gap-3">
+              {/* Task filter */}
+              <Select value={selectedTask} onValueChange={(v) => setSelectedTask(v as any)}>
+                <SelectTrigger className="w-40 bg-white border-gray-300">
+                  <SelectValue placeholder="Task" />
+                </SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="both">Both Tasks</SelectItem>
+                  <SelectItem value="classification">Classification</SelectItem>
+                  <SelectItem value="regression">Regression</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="w-40 bg-white border-gray-300">
                   <SelectValue placeholder="Sort by" />
@@ -474,6 +485,7 @@ export function CompareContent() {
                   <SelectItem value="roc_auc">ROC-AUC</SelectItem>
                   <SelectItem value="r2">R² Score</SelectItem>
                   <SelectItem value="mse">MSE</SelectItem>
+                  <SelectItem value="rmse">RMSE</SelectItem>
                   <SelectItem value="mae">MAE</SelectItem>
                 </SelectContent>
               </Select>
@@ -493,11 +505,23 @@ export function CompareContent() {
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Model Name</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Type</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Accuracy</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">F1 Score</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">ROC-AUC</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">MSE</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">R² Score</th>
+                  {(selectedTask === 'both' || selectedTask === 'classification') && (
+                    <>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Accuracy</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Precision</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Recall</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">F1 Score</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">ROC-AUC</th>
+                    </>
+                  )}
+                  {(selectedTask === 'both' || selectedTask === 'regression') && (
+                    <>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">MSE</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">RMSE</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">MAE</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">R² Score</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -510,21 +534,41 @@ export function CompareContent() {
                       {model.name}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-600">{model.model_type}</td>
-                    <td className="py-3 px-4 text-sm text-gray-600">
-                      {model.metrics.accuracy !== undefined ? (model.metrics.accuracy * 100).toFixed(2) + "%" : "N/A"}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-gray-600">
-                      {model.metrics.f1 !== undefined ? model.metrics.f1.toFixed(4) : "N/A"}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-gray-600">
-                      {model.metrics.roc_auc !== undefined ? model.metrics.roc_auc.toFixed(4) : "N/A"}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-gray-600">
-                      {model.metrics.mse !== undefined ? model.metrics.mse.toFixed(4) : "N/A"}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-gray-600">
-                      {model.metrics.r2 !== undefined ? model.metrics.r2.toFixed(4) : "N/A"}
-                    </td>
+                    {(selectedTask === 'both' || selectedTask === 'classification') && (
+                      <>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.accuracy !== undefined ? (model.metrics.accuracy * 100).toFixed(2) + "%" : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.precision !== undefined ? model.metrics.precision.toFixed(4) : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.recall !== undefined ? model.metrics.recall.toFixed(4) : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.f1 !== undefined ? model.metrics.f1.toFixed(4) : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.roc_auc !== undefined ? model.metrics.roc_auc.toFixed(4) : "N/A"}
+                        </td>
+                      </>
+                    )}
+                    {(selectedTask === 'both' || selectedTask === 'regression') && (
+                      <>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.mse !== undefined ? model.metrics.mse.toFixed(4) : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.rmse !== undefined ? model.metrics.rmse.toFixed(4) : (model.metrics.mse !== undefined ? Math.sqrt(model.metrics.mse).toFixed(4) : "N/A")}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.mae !== undefined ? model.metrics.mae.toFixed(4) : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {model.metrics.r2 !== undefined ? model.metrics.r2.toFixed(4) : "N/A"}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>

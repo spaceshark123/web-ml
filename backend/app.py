@@ -1003,8 +1003,11 @@ def _classification_metrics(wrapper: ModelWrapper, X_test, y_test):
 
 def _regression_metrics(wrapper: ModelWrapper, X_test, y_test):
     preds = wrapper.predict(X_test)
+    mse_val = float(mean_squared_error(y_test, preds))
+    rmse_val = float(np.sqrt(mse_val))
     return {
-        'mse': float(mean_squared_error(y_test, preds)),
+        'mse': mse_val,
+        'rmse': rmse_val,
         'mae': float(mean_absolute_error(y_test, preds)),
         'r2': float(r2_score(y_test, preds)),
     }
@@ -1030,12 +1033,47 @@ def compare_models_list():
     models = ModelEntry.query.filter_by(user_id=current_user.id).order_by(ModelEntry.created_at.desc()).all()
     out = []
     for m in models:
+        # Determine task type from associated dataset
+        ds = None
+        try:
+            ds = Dataset.query.get(m.dataset_id) if m.dataset_id else None
+        except Exception:
+            ds = None
+        task_type = 'regression' if (ds and getattr(ds, 'regression', False)) else 'classification'
+
+        # Ensure essential scalar metrics exist; if missing, compute quickly and persist
+        try:
+            metrics_dict = json.loads(m.metrics) if m.metrics else {}
+            need_cls = (task_type == 'classification') and not all(k in metrics_dict for k in ['accuracy','precision','recall','f1'])
+            need_reg = (task_type == 'regression') and not all(k in metrics_dict for k in ['mse','mae','r2'])
+            if (need_cls or need_reg) and ds is not None:
+                # Compute lightweight evaluation on current stored model
+                wrapper = ModelWrapper.from_db_record(m)
+                try:
+                    _, X, y, X_train, X_test, y_train, y_test = _load_dataset_for_model(m)
+                except Exception:
+                    # Fallback: load via dataset id
+                    ds2, X, y, X_train, X_test, y_train, y_test = _load_dataset_for_model(m)
+                if task_type == 'classification':
+                    fresh = _classification_metrics(wrapper, X_test, y_test)
+                else:
+                    fresh = _regression_metrics(wrapper, X_test, y_test)
+                # Merge scalar values only
+                for k, v in fresh.items():
+                    if isinstance(v, (int, float)):
+                        metrics_dict[k] = v
+                m.metrics = json.dumps(metrics_dict)
+                db.session.merge(m)
+                db.session.commit()
+        except Exception:
+            pass
         out.append({
             'id': m.id,
             'name': m.name,
             'model_type': m.model_type,
             'dataset_id': m.dataset_id,
             'metrics': json.loads(m.metrics) if m.metrics else {},
+            'type': task_type,
         })
     return jsonify(out)
 
@@ -1105,26 +1143,33 @@ def compare_two_models(model_id, other_id):
         'model1': build_result(m1, w1),
         'model2': build_result(m2, w2),
     }
-
-    if data['model1']['cv']:
-        existing_metrics = json.loads(m1.metrics) if m1.metrics else {}
-        # for any cv metric not already in stored metrics, add it
-        for k, v in data['model1']['cv'].items():
-            potential_key = k.replace('mean', '').replace('_', " ").strip()
-            if potential_key not in existing_metrics:
-                existing_metrics[potential_key] = v
-        m1.metrics = json.dumps(existing_metrics)
+    # Persist scalar metrics and CV summaries back to each model for leaderboard visibility
+    try:
+        # Model 1
+        existing_metrics_1 = json.loads(m1.metrics) if m1.metrics else {}
+        scalar_metrics_1 = {k: v for k, v in data['model1']['metrics'].items() if isinstance(v, (int, float))}
+        existing_metrics_1.update(scalar_metrics_1)
+        if data['model1']['cv']:
+            for k, v in data['model1']['cv'].items():
+                potential_key = k.replace('mean', '').replace('_', " ").strip()
+                if potential_key not in existing_metrics_1:
+                    existing_metrics_1[potential_key] = v
+        m1.metrics = json.dumps(existing_metrics_1)
         db.session.merge(m1)
-        db.session.commit()
-    if data['model2']['cv']:
-        existing_metrics = json.loads(m2.metrics) if m2.metrics else {}
-        for k, v in data['model2']['cv'].items():
-            potential_key = k.replace('mean', '').replace('_', " ").strip()
-            if potential_key not in existing_metrics:
-                existing_metrics[potential_key] = v
-        m2.metrics = json.dumps(existing_metrics)
+        # Model 2
+        existing_metrics_2 = json.loads(m2.metrics) if m2.metrics else {}
+        scalar_metrics_2 = {k: v for k, v in data['model2']['metrics'].items() if isinstance(v, (int, float))}
+        existing_metrics_2.update(scalar_metrics_2)
+        if data['model2']['cv']:
+            for k, v in data['model2']['cv'].items():
+                potential_key = k.replace('mean', '').replace('_', " ").strip()
+                if potential_key not in existing_metrics_2:
+                    existing_metrics_2[potential_key] = v
+        m2.metrics = json.dumps(existing_metrics_2)
         db.session.merge(m2)
         db.session.commit()
+    except Exception:
+        pass
         
     return jsonify(data)
 
@@ -1487,6 +1532,19 @@ def model_experiments(model_id):
                 result['shap'] = {'feature_importance': pairs[:20], 'total_features': len(features)}
             except Exception as e:
                     result['shap'] = {'feature_importance': [], 'error': str(e)}
+
+        # Persist scalar evaluation metrics back to the model so they're available in compare/leaderboard
+        try:
+            scalar_metrics = {k: v for k, v in result.get('metrics', {}).items() if isinstance(v, (int, float))}
+            if scalar_metrics:
+                existing = json.loads(m.metrics) if m.metrics else {}
+                existing.update(scalar_metrics)
+                m.metrics = json.dumps(existing)
+                db.session.merge(m)
+                db.session.commit()
+        except Exception:
+            # Do not block the response if persisting fails
+            pass
 
         return jsonify(result)
     except Exception as e:
