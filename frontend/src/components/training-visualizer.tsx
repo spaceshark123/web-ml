@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { AlertCircle, Loader2, CheckCircle } from "lucide-react"
 import io from "socket.io-client"
+import DownloadableChart from "./downloadable-chart"
 
 export interface TrainingMetrics {
   epoch: number
@@ -609,44 +610,46 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                 style={{ cursor: 'default' }}
                 title={isTraining ? 'Zoom/pan enabled after training completes' : 'Scroll to zoom • Drag to pan • Double-click to reset'}
               >
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={metrics} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="epoch"
-                      type="number"
-                      allowDataOverflow
-                      domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
-                      label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
-                    />
-                    <YAxis
-                      label={{ value: "Loss", angle: -90, position: "left" }}
-                      domain={lossYDomain ? [lossYDomain[0], lossYDomain[1]] : ['auto', 'auto']}
-                      tickFormatter={(v) => Number(v).toFixed(4)}
-                    />
-                    <Tooltip formatter={(value) => value.toString()} />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="loss"
-                      stroke="#ef4444"
-                      dot={false}
-                      name="Training Loss"
-                      strokeWidth={2}
-                    />
-                    {metrics[0].val_loss !== undefined && (
+                <DownloadableChart>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={metrics} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="epoch"
+                        type="number"
+                        allowDataOverflow
+                        domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
+                        label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
+                      />
+                      <YAxis
+                        label={{ value: "Loss", angle: -90, position: "left" }}
+                        domain={lossYDomain ? [lossYDomain[0], lossYDomain[1]] : ['auto', 'auto']}
+                        tickFormatter={(v) => Number(v).toFixed(4)}
+                      />
+                      <Tooltip formatter={(value) => value.toString()} />
+                      <Legend />
                       <Line
                         type="monotone"
-                        dataKey="val_loss"
-                        stroke="#f97316"
+                        dataKey="loss"
+                        stroke="#ef4444"
                         dot={false}
-                        name="Validation Loss"
+                        name="Training Loss"
                         strokeWidth={2}
-                        strokeDasharray="5 5"
                       />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
+                      {metrics[0].val_loss !== undefined && (
+                        <Line
+                          type="monotone"
+                          dataKey="val_loss"
+                          stroke="#f97316"
+                          dot={false}
+                          name="Validation Loss"
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                        />
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </DownloadableChart>
               </div>
             </CardContent>
           </Card>
@@ -669,44 +672,46 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
                   style={{ cursor: 'default' }}
                   title={isTraining ? 'Zoom/pan enabled after training completes' : 'Scroll to zoom • Drag to pan • Double-click to reset'}
                 >
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={metrics} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="epoch"
-                        type="number"
-                        allowDataOverflow
-                        domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
-                        label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
-                      />
-                      <YAxis
-                        label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "left" }}
-                        domain={metricYDomain ? [metricYDomain[0], metricYDomain[1]] : ['auto', 'auto']}
-                        tickFormatter={(v) => isRegression ? Number(v).toFixed(4) : `${(Number(v) * 100).toFixed(2)}%`}
-                      />
-                      <Tooltip formatter={(value) => isRegression ? value.toString() : `${(Number(value) * 100).toFixed(2)}%`} />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="metric"
-                        stroke="#22c55e"
-                        dot={false}
-                        name={`Training ${isRegression ? "MSE" : "Accuracy"}`}
-                        strokeWidth={2}
-                      />
-                      {metrics[0].val_metric !== undefined && (
+                  <DownloadableChart>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={metrics} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="epoch"
+                          type="number"
+                          allowDataOverflow
+                          domain={xDomain ? [xDomain[0], xDomain[1]] : ['dataMin', 'dataMax']}
+                          label={{ value: "Epoch", position: "insideBottomRight", offset: -5 }}
+                        />
+                        <YAxis
+                          label={{ value: isRegression ? "MSE" : "Accuracy", angle: -90, position: "left" }}
+                          domain={metricYDomain ? [metricYDomain[0], metricYDomain[1]] : ['auto', 'auto']}
+                          tickFormatter={(v) => isRegression ? Number(v).toFixed(4) : `${(Number(v) * 100).toFixed(2)}%`}
+                        />
+                        <Tooltip formatter={(value) => isRegression ? value.toString() : `${(Number(value) * 100).toFixed(2)}%`} />
+                        <Legend />
                         <Line
                           type="monotone"
-                          dataKey="val_metric"
-                          stroke="#16a34a"
+                          dataKey="metric"
+                          stroke="#22c55e"
                           dot={false}
-                          name={`Validation ${isRegression ? "MSE" : "Accuracy"}`}
+                          name={`Training ${isRegression ? "MSE" : "Accuracy"}`}
                           strokeWidth={2}
-                          strokeDasharray="5 5"
                         />
-                      )}
-                    </LineChart>
-                  </ResponsiveContainer>
+                        {metrics[0].val_metric !== undefined && (
+                          <Line
+                            type="monotone"
+                            dataKey="val_metric"
+                            stroke="#16a34a"
+                            dot={false}
+                            name={`Validation ${isRegression ? "MSE" : "Accuracy"}`}
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                          />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </DownloadableChart>
                 </div>
               </CardContent>
             </Card>

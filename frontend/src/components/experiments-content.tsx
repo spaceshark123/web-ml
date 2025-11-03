@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Trash2 } from "lucide-react"
+import { ArrowLeft, Download, Trash2 } from "lucide-react"
 import { Button } from "./ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -9,6 +9,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { Label } from "@/components/ui/label"
 import type { Dataset } from "./datasets-content"
 import type { Model } from "./models-content"
+import DownloadableChart from "./downloadable-chart"
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042"];
 
@@ -194,29 +195,31 @@ export function ClassDistributionPie({ classDistribution }: { classDistribution:
 	}));
 
 	return (
-		<PieChart width={700} height={700}>
-			<Pie
-				data={data}
-				dataKey="count"
-				nameKey="class"
-				cx="50%"
-				cy="50%"
-				outerRadius={250}
-				label={({ class: classLabel, percent }) => `${classLabel} (${percent}%)`}
-				style={{ cursor: "pointer", outline: "none" }}
-			>
-				{data.map((_, index) => (
-					<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-				))}
-			</Pie>
-			<Tooltip
-				formatter={(value, _name, props) => {
-					const { payload } = props;
-					return [`${value} (${payload.percent}%)`, "Count"];
-				}}
-				labelFormatter={(label) => `Class: ${label}`}
-			/>
-		</PieChart>
+		<DownloadableChart>
+			<PieChart width={700} height={700}>
+				<Pie
+					data={data}
+					dataKey="count"
+					nameKey="class"
+					cx="50%"
+					cy="50%"
+					outerRadius={250}
+					label={({ class: classLabel, percent }) => `${classLabel} (${percent}%)`}
+					style={{ cursor: "pointer", outline: "none" }}
+				>
+					{data.map((_, index) => (
+						<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+					))}
+				</Pie>
+				<Tooltip
+					formatter={(value, _name, props) => {
+						const { payload } = props;
+						return [`${value} (${payload.percent}%)`, "Count"];
+					}}
+					labelFormatter={(label) => `Class: ${label}`}
+				/>
+			</PieChart>
+		</DownloadableChart>
 	);
 }
 
@@ -842,54 +845,56 @@ export function ExperimentsContent() {
 											<CardDescription>AUC: {experimentData.metrics.roc_auc?.toFixed(3)}</CardDescription>
 										</CardHeader>
 										<CardContent>
-											<ResponsiveContainer width="100%" height={300}>
-												<LineChart data={experimentData.metrics.roc_curve as any} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-													<CartesianGrid strokeDasharray="3 3" />
-													<XAxis dataKey="fpr" domain={[0, 1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
-													<YAxis domain={[0, 1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
-													<Tooltip content={({ active, payload, label }: any) => {
-														if (!active || !payload || payload.length === 0) return null
-														const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
-														if (dataPoints.length === 0) return null
-														const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
-														return (
-															<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
-																<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
-																{dataPoints.map((point: any, idx: number) => (
-																	<div key={idx} className="flex items-center gap-2">
-																		<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
-																		<span className="text-gray-600">{point.name}:</span>
-																		<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
-																	</div>
-																))}
-															</div>
-														)
-													}} />
-													<Legend />
-													{/* Baseline: random guessing diagonal */}
-													<Line
-														data={[{ fpr: 0, tpr: 0 }, { fpr: 1, tpr: 1 }]}
-														type="linear"
-														dataKey="tpr"
-														stroke="#9ca3af"
-														strokeDasharray="4 4"
-														dot={false}
-														name="Baseline"
-														isAnimationActive={false}
-													/>
-													{/* ROC curve */}
-													<Line
-														type="monotone"
-														dataKey="tpr"
-														name="ROC"
-														stroke="#2563eb"
-														dot={false}
-														strokeWidth={2}
-														isAnimationActive={true}
-														activeDot={true as any}
-													/>
-												</LineChart>
-											</ResponsiveContainer>
+											<DownloadableChart>
+												<ResponsiveContainer width="100%" height={300}>
+													<LineChart data={experimentData.metrics.roc_curve as any} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+														<CartesianGrid strokeDasharray="3 3" />
+														<XAxis dataKey="fpr" domain={[0, 1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
+														<YAxis domain={[0, 1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
+														<Tooltip content={({ active, payload, label }: any) => {
+															if (!active || !payload || payload.length === 0) return null
+															const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
+															if (dataPoints.length === 0) return null
+															const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
+															return (
+																<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
+																	<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
+																	{dataPoints.map((point: any, idx: number) => (
+																		<div key={idx} className="flex items-center gap-2">
+																			<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
+																			<span className="text-gray-600">{point.name}:</span>
+																			<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
+																		</div>
+																	))}
+																</div>
+															)
+														}} />
+														<Legend />
+														{/* Baseline: random guessing diagonal */}
+														<Line
+															data={[{ fpr: 0, tpr: 0 }, { fpr: 1, tpr: 1 }]}
+															type="linear"
+															dataKey="tpr"
+															stroke="#9ca3af"
+															strokeDasharray="4 4"
+															dot={false}
+															name="Baseline"
+															isAnimationActive={false}
+														/>
+														{/* ROC curve */}
+														<Line
+															type="monotone"
+															dataKey="tpr"
+															name="ROC"
+															stroke="#2563eb"
+															dot={false}
+															strokeWidth={2}
+															isAnimationActive={true}
+															activeDot={true as any}
+														/>
+													</LineChart>
+												</ResponsiveContainer>
+											</DownloadableChart>
 										</CardContent>
 									</Card>
 								)}
@@ -910,58 +915,60 @@ export function ExperimentsContent() {
 													</CardDescription>
 												</CardHeader>
 												<CardContent>
-													<ResponsiveContainer width="100%" height={300}>
-														<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-															<CartesianGrid strokeDasharray="3 3" />
-															<XAxis dataKey="fpr" domain={[0, 1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
-															<YAxis domain={[0, 1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
-															<Tooltip content={({ active, payload, label }: any) => {
-																if (!active || !payload || payload.length === 0) return null
-																const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
-																if (dataPoints.length === 0) return null
-																const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
-																return (
-																	<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
-																		<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
-																		{dataPoints.map((point: any, idx: number) => (
-																			<div key={idx} className="flex items-center gap-2">
-																				<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
-																				<span className="text-gray-600">{point.name}:</span>
-																				<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
-																			</div>
-																		))}
-																	</div>
-																)
-															}} />
-															<Legend />
-															{/* Baseline: random guessing (non-interactive) */}
-															<Line
-																dataKey="__baseline"
-																data={mergedData.map(d => ({ ...d, __baseline: d.fpr }))}
-																type="linear"
-																stroke="#9ca3af"
-																strokeDasharray="4 4"
-																dot={false}
-																name="Baseline"
-																isAnimationActive={false}
-																activeDot={false as any}
-															/>
-															{rocCurvesOvr.map((cls, idx) => {
-																const color = palette[idx % palette.length]
-																return (
-																	<Line
-																		key={`roc-${cls.class_label}`}
-																		type="monotone"
-																		dataKey={cls.class_label}
-																		name={cls.class_label}
-																		stroke={color}
-																		dot={false}
-																		strokeWidth={2}
-																	/>
-																)
-															})}
-														</LineChart>
-													</ResponsiveContainer>
+													<DownloadableChart>
+														<ResponsiveContainer width="100%" height={300}>
+															<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+																<CartesianGrid strokeDasharray="3 3" />
+																<XAxis dataKey="fpr" domain={[0, 1]} type="number" label={{ value: "False Positive Rate", position: "insideBottomRight", offset: -5 }} />
+																<YAxis domain={[0, 1]} label={{ value: "True Positive Rate", angle: -90, position: "insideLeft" }} />
+																<Tooltip content={({ active, payload, label }: any) => {
+																	if (!active || !payload || payload.length === 0) return null
+																	const dataPoints = payload.filter((p: any) => p.name !== 'Baseline' && p.dataKey !== '__baseline')
+																	if (dataPoints.length === 0) return null
+																	const cursorFpr = typeof label === 'number' ? label : (dataPoints[0]?.payload?.fpr ?? 0)
+																	return (
+																		<div className="rounded-md bg-white/95 border border-gray-200 shadow p-2 text-xs">
+																			<div className="font-medium text-gray-700 mb-1">FPR: {Number(cursorFpr).toFixed(3)}</div>
+																			{dataPoints.map((point: any, idx: number) => (
+																				<div key={idx} className="flex items-center gap-2">
+																					<span className="inline-block w-2 h-2 rounded-sm" style={{ background: point.color }} />
+																					<span className="text-gray-600">{point.name}:</span>
+																					<span className="text-gray-900">TPR {Number(point.value).toFixed(3)}</span>
+																				</div>
+																			))}
+																		</div>
+																	)
+																}} />
+																<Legend />
+																{/* Baseline: random guessing (non-interactive) */}
+																<Line
+																	dataKey="__baseline"
+																	data={mergedData.map(d => ({ ...d, __baseline: d.fpr }))}
+																	type="linear"
+																	stroke="#9ca3af"
+																	strokeDasharray="4 4"
+																	dot={false}
+																	name="Baseline"
+																	isAnimationActive={false}
+																	activeDot={false as any}
+																/>
+																{rocCurvesOvr.map((cls, idx) => {
+																	const color = palette[idx % palette.length]
+																	return (
+																		<Line
+																			key={`roc-${cls.class_label}`}
+																			type="monotone"
+																			dataKey={cls.class_label}
+																			name={cls.class_label}
+																			stroke={color}
+																			dot={false}
+																			strokeWidth={2}
+																		/>
+																	)
+																})}
+															</LineChart>
+														</ResponsiveContainer>
+													</DownloadableChart>
 												</CardContent>
 											</Card>
 										)
@@ -975,6 +982,7 @@ export function ExperimentsContent() {
 											<CardDescription>AP: {experimentData.metrics.pr_auc?.toFixed(3)}</CardDescription>
 										</CardHeader>
 										<CardContent>
+											<DownloadableChart>
 											<ResponsiveContainer width="100%" height={300}>
 												<LineChart data={experimentData.metrics.pr_curve as any} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
 													<CartesianGrid strokeDasharray="3 3" />
@@ -984,7 +992,8 @@ export function ExperimentsContent() {
 													<Legend />
 													<Line type="monotone" dataKey="precision" name="PR" stroke="#16a34a" dot={false} strokeWidth={2} />
 												</LineChart>
-											</ResponsiveContainer>
+												</ResponsiveContainer>
+											</DownloadableChart>
 										</CardContent>
 									</Card>
 								)}
@@ -1018,6 +1027,7 @@ export function ExperimentsContent() {
 													</CardDescription>
 												</CardHeader>
 												<CardContent>
+													<DownloadableChart>
 													<ResponsiveContainer width="100%" height={300}>
 														<LineChart data={mergedData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
 															<CartesianGrid strokeDasharray="3 3" />
@@ -1040,7 +1050,8 @@ export function ExperimentsContent() {
 																)
 															})}
 														</LineChart>
-													</ResponsiveContainer>
+														</ResponsiveContainer>
+													</DownloadableChart>
 												</CardContent>
 											</Card>
 										)
@@ -1056,7 +1067,9 @@ export function ExperimentsContent() {
 										<CardDescription>Predicted vs Actual</CardDescription>
 									</CardHeader>
 									<CardContent>
-										<ConfusionMatrix labels={experimentData.confusion_matrix.labels} matrix={experimentData.confusion_matrix.matrix} />
+										<DownloadableChart>
+											<ConfusionMatrix labels={experimentData.confusion_matrix.labels} matrix={experimentData.confusion_matrix.matrix} />
+										</DownloadableChart>
 									</CardContent>
 								</Card>
 							)}
@@ -1084,6 +1097,7 @@ export function ExperimentsContent() {
 										<CardDescription>Mean |SHAP| values (top {Math.min(10, experimentData.shap.feature_importance.length)})</CardDescription>
 									</CardHeader>
 									<CardContent>
+										<DownloadableChart>
 										<ResponsiveContainer width="100%" height={Math.min(10, experimentData.shap.feature_importance.length) * 30 + 60}>
 											<BarChart data={[...experimentData.shap.feature_importance].slice(0, 20).reverse()} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
 												<CartesianGrid strokeDasharray="3 3" />
@@ -1093,7 +1107,8 @@ export function ExperimentsContent() {
 												<Legend />
 												<Bar dataKey="importance" name="Mean |SHAP|" fill="#8b5fbf" />
 											</BarChart>
-										</ResponsiveContainer>
+											</ResponsiveContainer>
+										</DownloadableChart>
 									</CardContent>
 								</Card>
 							)}
@@ -1180,7 +1195,9 @@ export function ExperimentsContent() {
 													<CardTitle className="text-lg">Feature Correlation</CardTitle>
 												</CardHeader>
 												<CardContent>
-													<CorrelationMatrix labels={experimentData.correlation_matrix.feature_names} target_feature_names={experimentData.correlation_matrix.target_feature_names.flat()} matrix={experimentData.correlation_matrix.matrix} />
+													<DownloadableChart>
+														<CorrelationMatrix labels={experimentData.correlation_matrix.feature_names} target_feature_names={experimentData.correlation_matrix.target_feature_names.flat()} matrix={experimentData.correlation_matrix.matrix} />
+													</DownloadableChart>
 												</CardContent>
 											</Card>
 										)}
@@ -1192,7 +1209,9 @@ export function ExperimentsContent() {
 													<CardTitle className="text-lg">Feature Distributions</CardTitle>
 												</CardHeader>
 												<CardContent>
-													<MixedFeatureSummary data={experimentData.data} rowHeight={60}/>
+													<DownloadableChart>
+														<MixedFeatureSummary data={experimentData.data} rowHeight={60} />
+													</DownloadableChart>
 												</CardContent>
 											</Card>
 										)}

@@ -9,6 +9,7 @@ import { Link } from "react-router-dom"
 import { API_BASE_URL } from "@/constants"
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 import { Tooltip as UITooltip } from "@/components/ui/tooltip"
+import DownloadableChart from "./downloadable-chart"
 
 interface Model {
   id: number
@@ -190,7 +191,7 @@ export function CompareContent() {
         <p className="text-gray-500">Side-by-side model comparison and performance metrics</p>
       </div>
 
-  <div className="p-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="p-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Model Selection */}
         <div className="lg:col-span-1">
           <Card className="p-6">
@@ -300,45 +301,45 @@ export function CompareContent() {
                 {/* Classification Metrics */}
                 {(comparisonData.model1.metrics.accuracy !== undefined ||
                   comparisonData.model2.metrics.accuracy !== undefined) && (
-                  <div>
-                    <h4 className="font-medium text-gray-700 mb-3">Classification Metrics</h4>
-                    {renderMetric(
-                      "Accuracy",
-                      comparisonData.model1.metrics.accuracy,
-                      comparisonData.model2.metrics.accuracy,
-                    )}
-                    {renderMetric(
-                      "Precision",
-                      comparisonData.model1.metrics.precision,
-                      comparisonData.model2.metrics.precision,
-                    )}
-                    {renderMetric("Recall", comparisonData.model1.metrics.recall, comparisonData.model2.metrics.recall)}
-                    {renderMetric("F1 Score", comparisonData.model1.metrics.f1, comparisonData.model2.metrics.f1)}
-                    {renderMetric(
-                      "ROC-AUC",
-                      comparisonData.model1.metrics.roc_auc,
-                      comparisonData.model2.metrics.roc_auc,
-                    )}
-                    {(comparisonData.model1.metrics.pr_auc !== undefined || comparisonData.model2.metrics.pr_auc !== undefined) && (
-                      renderMetric(
-                        "PR-AUC",
-                        comparisonData.model1.metrics.pr_auc,
-                        comparisonData.model2.metrics.pr_auc,
-                      )
-                    )}
-                  </div>
-                )}
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-3">Classification Metrics</h4>
+                      {renderMetric(
+                        "Accuracy",
+                        comparisonData.model1.metrics.accuracy,
+                        comparisonData.model2.metrics.accuracy,
+                      )}
+                      {renderMetric(
+                        "Precision",
+                        comparisonData.model1.metrics.precision,
+                        comparisonData.model2.metrics.precision,
+                      )}
+                      {renderMetric("Recall", comparisonData.model1.metrics.recall, comparisonData.model2.metrics.recall)}
+                      {renderMetric("F1 Score", comparisonData.model1.metrics.f1, comparisonData.model2.metrics.f1)}
+                      {renderMetric(
+                        "ROC-AUC",
+                        comparisonData.model1.metrics.roc_auc,
+                        comparisonData.model2.metrics.roc_auc,
+                      )}
+                      {(comparisonData.model1.metrics.pr_auc !== undefined || comparisonData.model2.metrics.pr_auc !== undefined) && (
+                        renderMetric(
+                          "PR-AUC",
+                          comparisonData.model1.metrics.pr_auc,
+                          comparisonData.model2.metrics.pr_auc,
+                        )
+                      )}
+                    </div>
+                  )}
 
                 {/* Regression Metrics */}
                 {(comparisonData.model1.metrics.mse !== undefined ||
                   comparisonData.model2.metrics.mse !== undefined) && (
-                  <div className="mt-6 pt-6 border-t border-gray-200">
-                    <h4 className="font-medium text-gray-700 mb-3">Regression Metrics</h4>
-                    {renderMetric("MSE", comparisonData.model1.metrics.mse, comparisonData.model2.metrics.mse)}
-                    {renderMetric("MAE", comparisonData.model1.metrics.mae, comparisonData.model2.metrics.mae)}
-                    {renderMetric("R² Score", comparisonData.model1.metrics.r2, comparisonData.model2.metrics.r2)}
-                  </div>
-                )}
+                    <div className="mt-6 pt-6 border-t border-gray-200">
+                      <h4 className="font-medium text-gray-700 mb-3">Regression Metrics</h4>
+                      {renderMetric("MSE", comparisonData.model1.metrics.mse, comparisonData.model2.metrics.mse)}
+                      {renderMetric("MAE", comparisonData.model1.metrics.mae, comparisonData.model2.metrics.mae)}
+                      {renderMetric("R² Score", comparisonData.model1.metrics.r2, comparisonData.model2.metrics.r2)}
+                    </div>
+                  )}
 
                 {/* Preprocessing Info */}
                 {comparisonData.model1.metrics.preprocessing && (
@@ -399,45 +400,49 @@ export function CompareContent() {
               {(comparisonData.model1.metrics.roc_curve || comparisonData.model2.metrics.roc_curve) && (
                 <Card className="p-6">
                   <h3 className="text-lg font-semibold mb-4">ROC Curve</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" dataKey="fpr" name="FPR" domain={[0, 1]} />
-                      <YAxis type="number" dataKey="tpr" name="TPR" domain={[0, 1]} />
-                      <Tooltip formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : v)} />
-                      <Legend />
-                      {comparisonData.model1.metrics.roc_curve && (
-                        <Line data={comparisonData.model1.metrics.roc_curve} type="monotone" dataKey="tpr" name={`${comparisonData.model1.name}`} stroke="#2563eb" dot={false} />
-                      )}
-                      {comparisonData.model2.metrics.roc_curve && (
-                        <Line data={comparisonData.model2.metrics.roc_curve} type="monotone" dataKey="tpr" name={`${comparisonData.model2.name}`} stroke="#7c3aed" dot={false} />
-                      )}
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <DownloadableChart>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" dataKey="fpr" name="FPR" domain={[0, 1]} />
+                        <YAxis type="number" dataKey="tpr" name="TPR" domain={[0, 1]} />
+                        <Tooltip formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : v)} />
+                        <Legend />
+                        {comparisonData.model1.metrics.roc_curve && (
+                          <Line data={comparisonData.model1.metrics.roc_curve} type="monotone" dataKey="tpr" name={`${comparisonData.model1.name}`} stroke="#2563eb" dot={false} />
+                        )}
+                        {comparisonData.model2.metrics.roc_curve && (
+                          <Line data={comparisonData.model2.metrics.roc_curve} type="monotone" dataKey="tpr" name={`${comparisonData.model2.name}`} stroke="#7c3aed" dot={false} />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </DownloadableChart>
                 </Card>
               )}
 
               {((comparisonData.model1.metrics.preprocessing?.imbalance?.is_imbalanced && comparisonData.model1.metrics.pr_curve) ||
                 (comparisonData.model2.metrics.preprocessing?.imbalance?.is_imbalanced && comparisonData.model2.metrics.pr_curve)) && (
-                <Card className="p-6">
-                  <h3 className="text-lg font-semibold mb-4">Precision-Recall Curve</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" dataKey="recall" name="Recall" domain={[0, 1]} />
-                      <YAxis type="number" dataKey="precision" name="Precision" domain={[0, 1]} />
-                      <Tooltip formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : v)} />
-                      <Legend />
-                      {comparisonData.model1.metrics.pr_curve && (
-                        <Line data={comparisonData.model1.metrics.pr_curve} type="monotone" dataKey="precision" name={`${comparisonData.model1.name}`} stroke="#16a34a" dot={false} />
-                      )}
-                      {comparisonData.model2.metrics.pr_curve && (
-                        <Line data={comparisonData.model2.metrics.pr_curve} type="monotone" dataKey="precision" name={`${comparisonData.model2.name}`} stroke="#ea580c" dot={false} />
-                      )}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Card>
-              )}
+                  <Card className="p-6">
+                    <h3 className="text-lg font-semibold mb-4">Precision-Recall Curve</h3>
+                    <DownloadableChart>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis type="number" dataKey="recall" name="Recall" domain={[0, 1]} />
+                          <YAxis type="number" dataKey="precision" name="Precision" domain={[0, 1]} />
+                          <Tooltip formatter={(v) => (typeof v === 'number' ? v.toFixed(3) : v)} />
+                          <Legend />
+                          {comparisonData.model1.metrics.pr_curve && (
+                            <Line data={comparisonData.model1.metrics.pr_curve} type="monotone" dataKey="precision" name={`${comparisonData.model1.name}`} stroke="#16a34a" dot={false} />
+                          )}
+                          {comparisonData.model2.metrics.pr_curve && (
+                            <Line data={comparisonData.model2.metrics.pr_curve} type="monotone" dataKey="precision" name={`${comparisonData.model2.name}`} stroke="#ea580c" dot={false} />
+                          )}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </DownloadableChart>
+                  </Card>
+                )}
 
               {/* Cross-validation summary */}
               {(comparisonData.model1.cv || comparisonData.model2.cv) && (
