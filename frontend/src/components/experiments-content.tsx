@@ -380,6 +380,13 @@ export function ExperimentsContent() {
 			setType('model')
 			setSelectedModel(modelId)
 		}
+
+		// If a dataset_id is provided, preselect it in the Dataset selector
+		const datasetId = searchParams.get('dataset_id')
+		if (datasetId) {
+			setType('dataset')
+			setSelectedDataset(datasetId)
+		}
 	}, [])
 
 	const renderMetric = (label: string, val: any) => {
