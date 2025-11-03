@@ -1,11 +1,11 @@
-import { useState, useEffect, Fragment, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { Button } from "./ui/button"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { data, Link, useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { API_BASE_URL } from "@/constants"
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, PieChart, Pie, Cell, LabelList } from "recharts"
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, PieChart, Pie, Cell } from "recharts"
 import { Label } from "@/components/ui/label"
 import type { Dataset } from "./datasets-content"
 import type { Model } from "./models-content"
@@ -205,12 +205,12 @@ export function ClassDistributionPie({ classDistribution }: { classDistribution:
 				label={({ class: classLabel, percent }) => `${classLabel} (${percent}%)`}
 				style={{ cursor: "pointer", outline: "none" }}
 			>
-				{data.map((entry, index) => (
+				{data.map((_, index) => (
 					<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
 				))}
 			</Pie>
 			<Tooltip
-				formatter={(value, name, props) => {
+				formatter={(value, _name, props) => {
 					const { payload } = props;
 					return [`${value} (${payload.percent}%)`, "Count"];
 				}}
@@ -242,9 +242,10 @@ type FeatureSummary =
 
 type Props = { data: FeatureSummary[]; width?: number; rowHeight?: number };
 
-const FeatureShape = ({ x, y, width, height, payload }: any) => {
+const FeatureShape = ({ x, y, width, height, payload, plotWidth }: any) => {
+	const drawWidth = typeof plotWidth === 'number' ? plotWidth : width
 	if (payload.type === "numeric") {
-		const scale = (val: number) => ((val - payload.min) / (payload.max - payload.min)) * width;
+		const scale = (val: number) => ((val - payload.min) / (payload.max - payload.min)) * drawWidth;
 		const boxStart = scale(payload.q1);
 		const boxEnd = scale(payload.q3);
 		const median = scale(payload.median);
@@ -282,7 +283,7 @@ const FeatureShape = ({ x, y, width, height, payload }: any) => {
 		return (
 			<g transform={`translate(${x},0)`}>
 				{payload.proportions.map((p: number, idx: number) => {
-					const segWidth = p * width;
+					const segWidth = p * drawWidth;
 					const rect = (
 						<rect
 							key={idx}
@@ -300,7 +301,7 @@ const FeatureShape = ({ x, y, width, height, payload }: any) => {
 					<rect
 						x={0}
 						y={centerY - barHeight / 2}
-						width={width}
+						width={drawWidth}
 						height={barHeight}
 						fill="none"
 						stroke="#22c55e"
@@ -315,31 +316,59 @@ const FeatureShape = ({ x, y, width, height, payload }: any) => {
 };
 
 export function MixedFeatureSummary({ data, rowHeight = 30 }: Props) {
+	// Dynamic sizing based on container width
+	const containerRef = useRef<HTMLDivElement>(null)
+	const [containerWidth, setContainerWidth] = useState(0)
+
+	useEffect(() => {
+		if (!containerRef.current) return
+		const ro = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				const w = (entry as any).contentBoxSize
+					? (Array.isArray((entry as any).contentBoxSize) ? (entry as any).contentBoxSize[0].inlineSize : (entry as any).contentBoxSize.inlineSize)
+					: entry.contentRect.width
+				setContainerWidth(Math.max(0, Number(w) || 0))
+			}
+		})
+		ro.observe(containerRef.current)
+		return () => ro.disconnect()
+	}, [])
+
+	const yAxisWidth = 140
+	const margins = { left: 140, right: 20, top: 20, bottom: 20 }
+	const plotWidth = Math.max(50, containerWidth - (margins.left + margins.right + yAxisWidth))
+
 	return (
-		<ResponsiveContainer width="100%" height={data.length * rowHeight}>
-			<BarChart
-				layout="vertical"
-				data={data}
-				margin={{ left: 140, right: 20, top: 20, bottom: 20 }}
-				barGap={8}
-			>
-				<XAxis type="number" hide />
-				<YAxis type="category" dataKey="feature" width={140} />
-				<Tooltip
-					formatter={(value, name, props) => {
-						const d = props.payload;
-						if (d.type === "numeric") {
-							return `min: ${d.min}, q1: ${d.q1}, median: ${d.median}, q3: ${d.q3}, max: ${d.max}`;
-						} else {
-							return d.categories
-								.map((cat: string, i: number) => `${cat}: ${(d.proportions[i] * 100).toFixed(1)}%`)
-								.join(", ");
-						}
-					}}
-				/>
-				<Bar dataKey="feature" fill="#8884d8" shape={<FeatureShape x={140*2} width={610} />} />
-			</BarChart>
-		</ResponsiveContainer>
+		<div ref={containerRef} style={{ width: '100%', height: data.length * rowHeight }}>
+			<ResponsiveContainer width="100%" height={data.length * rowHeight}>
+				<BarChart
+					layout="vertical"
+					data={data}
+					margin={margins}
+					barGap={8}
+				>
+					<XAxis type="number" hide />
+					<YAxis type="category" dataKey="feature" width={yAxisWidth} />
+					<Tooltip
+						formatter={(_value, _name, props) => {
+							const d = props.payload;
+							if (d.type === "numeric") {
+								return `min: ${d.min}, q1: ${d.q1}, median: ${d.median}, q3: ${d.q3}, max: ${d.max}`;
+							} else {
+								return d.categories
+									.map((cat: string, i: number) => `${cat}: ${(d.proportions[i] * 100).toFixed(1)}%`)
+									.join(", ");
+							}
+						}}
+					/>
+					<Bar
+						dataKey="feature"
+						fill="#8884d8"
+						shape={<FeatureShape x={yAxisWidth + margins.left} plotWidth={plotWidth} />}
+					/>
+				</BarChart>
+			</ResponsiveContainer>
+		</div>
 	);
 }
 
@@ -456,7 +485,7 @@ export function ExperimentsContent() {
 
 		setLoading(true)
 
-		// Capture the model ID we're evaluating to prevent stale closures
+		// capture the model ID we're evaluating to prevent stale closures
 		const modelForPolling = selectedModel
 
 		try {
@@ -469,7 +498,6 @@ export function ExperimentsContent() {
 				try {
 					const err = await res.json()
 					if (err && err.error) {
-						// Use the specified alert message
 						window.alert("Error: Model doesn't exist or has not trained.")
 						setLoading(false)
 						return
@@ -485,17 +513,17 @@ export function ExperimentsContent() {
 			console.log('ROC curves OvR:', (data.metrics as any)?.roc_curves_ovr)
 			setExperimentData(data)
 
-			// Save experiment to history
+			// save experiment to history
 			saveExperimentToHistory(data)
 			setExperimentHistory(loadExperimentHistory())
 
-			// If SHAP is pending, start polling progress
+			// if SHAP is pending, start polling progress
 			if (data && (data as any).shap && (data as any).shap.status === 'pending') {
 				setShapProgress(0)
 
 				// Begin polling every 1 second for smoother progress updates
 				const intervalId = window.setInterval(async () => {
-					// Stop polling if user switched to a different model
+					// stop polling if user switched to a different model
 					if (selectedModel !== modelForPolling) {
 						window.clearInterval(intervalId)
 						setShapPollingId(null)
@@ -528,7 +556,7 @@ export function ExperimentsContent() {
 							window.clearInterval(intervalId)
 							setShapPollingId(null)
 						} else if (stat.status === 'none') {
-							// Job doesn't exist, stop polling
+							// job doesn't exist, stop polling
 							window.clearInterval(intervalId)
 							setShapPollingId(null)
 							setShapProgress(0)
@@ -540,7 +568,7 @@ export function ExperimentsContent() {
 						window.clearInterval(intervalId)
 						setShapPollingId(null)
 					}
-				}, 1000) // Poll every 1 second for smoother progress updates				setShapPollingId(intervalId)
+				}, 1000) // 1 second interval
 			} else {
 				setShapProgress(0)
 			}
@@ -551,7 +579,7 @@ export function ExperimentsContent() {
 		}
 	}
 
-	// Cleanup polling on unmount
+	// cleanup polling on unmount
 	useEffect(() => {
 		return () => {
 			if (shapPollingId !== null) {
@@ -637,7 +665,7 @@ export function ExperimentsContent() {
 									</Select>
 									<Button
 										onClick={() => {
-											// Handle model evaluation and metric visualization
+											// handle model evaluation and metric visualization
 											evaluateModel()
 										}}
 										disabled={loading || selectedModel === ""}
