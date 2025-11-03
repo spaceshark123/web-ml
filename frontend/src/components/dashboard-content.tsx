@@ -188,8 +188,8 @@ export function DashboardContent() {
 
 					<div className="space-y-4">
 						{datasets.slice(0, 3).map((dataset) => (
-							<div key={dataset.id} className="flex items-start justify-between py-3 border-b">
-								<div>
+							<div key={dataset.id} className="flex items-start justify-between py-3 border-b max-w-full overflow-hidden last:border-0">
+								<div className="max-w-[90%] overflow-hidden">
 									<h3 className="font-semibold">{dataset.name}</h3>
 									<p className="text-sm text-muted-foreground">{dataset.rows} rows, {dataset.features} columns</p>
 								</div>
@@ -212,8 +212,8 @@ export function DashboardContent() {
 
 					<div className="space-y-3">
 						{models.slice(0, 3).map((model) => (
-							<div key={model.id} className="flex items-start justify-between py-3 border-b last:border-0">
-								<div className="flex-1">
+							<div key={model.id} className="flex items-start justify-between py-3 border-b last:border-0 max-w-full overflow-hidden">
+								<div className="flex-1 overflow-hidden max-w-[90%]">
 									<div className="flex items-center gap-2 mb-1">
 										<h3 className="font-semibold text-sm">{model.name}</h3>
 										<span className="px-2 py-0.5 bg-gray-600 text-white text-xs rounded">{model.model_type}</span>
