@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+
 interface CreateModelDialogProps {
 	datasetIdInput?: number
 	text?: string
@@ -54,7 +56,7 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 
 
 		try {
-			const response = await fetch("http://localhost:5000/api/models", {
+			const response = await fetch(`${API_URL}/models`, {
 				method: "POST",
 				body: JSON.stringify({
 					name: customName.trim(),
@@ -118,7 +120,7 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 
 		// Send params to backend to update model
 		try {
-			const response = await fetch(`http://localhost:5000/api/models/${modelId}`, {
+			const response = await fetch(`${API_URL}/models/${modelId}`, {
 				method: "PUT",
 				body: JSON.stringify({
 					params: params,
@@ -159,7 +161,7 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 
 	const getAvailableDatasets = async () => {
 		// Fetch available datasets from the backend to populate the select options
-		const response = await fetch("http://localhost:5000/api/datasets", {
+		const response = await fetch(`${API_URL}/datasets`, {
 			method: 'GET',
 			credentials: 'include',
 			headers: {
@@ -182,7 +184,7 @@ export function CreateModelDialog({ datasetIdInput, text, onCreateSuccess, refre
 
 	const handleDelete = async () => {
 		try {
-			const response = await fetch(`http://localhost:5000/api/models/${modelId}`, {
+			const response = await fetch(`${API_URL}/models/${modelId}`, {
 				method: 'DELETE',
 				credentials: 'include',
 			});

@@ -30,8 +30,6 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Initialize / reset the SQLite DB (an example `instance/app.db` is present). To recreate, stop the app, remove `instance/app.db`, then restart.
-
 3. Run the backend (includes Socket.IO):
 
 ```bash
@@ -39,7 +37,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-This will start the server on port 5000 by default. The Flask app and Socket.IO handlers are wired in [backend/endpoints.py](backend/endpoints.py) and extensions come from [backend/extensions.py](backend/extensions.py).
+This will start the server on port 5050 by default. The Flask app and Socket.IO handlers are wired in [backend/endpoints.py](backend/endpoints.py) and extensions come from [backend/extensions.py](backend/extensions.py).
 
 ## Quickstart — Frontend
 
@@ -75,7 +73,7 @@ npm test
 ## Development notes
 
 - The code stores models and metadata in SQLite at `instance/app.db`. Models are pickled into the DB via [`ModelWrapper.to_db_record`](backend/ml/wrapper.py).
-- Frontend components expect the backend API at `http://localhost:5000` (see [frontend/vite.config.ts](frontend/vite.config.ts) proxy).
+- Frontend components expect the backend API at `http://localhost:5050` (see [frontend/vite.config.ts](frontend/vite.config.ts) proxy).
 - CORS is configured in the backend to allow the dev frontend origin (see [backend/endpoints.py](backend/endpoints.py) and [backend/extensions.py](backend/extensions.py)).
 - Large files are stored under `uploads/` (configured via `app.config['UPLOAD_FOLDER']` in [backend/endpoints.py](backend/endpoints.py)).
 
@@ -91,6 +89,8 @@ npm test
 - Stop the backend.
 - Remove `instance/app.db` and contents of `uploads/`.
 - Restart backend to recreate (some initialization logic runs on boot in [backend/endpoints.py](backend/endpoints.py)).
+
+OR, send a POST request to the `api/reset/both?key=supersecretresetkey` endpoint
 
 ### Help / debugging
 

@@ -15,6 +15,9 @@ import type { Model } from "./models-content"
 import { TrainingVisualizer } from "./training-visualizer"
 import io from "socket.io-client"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000"
+
 interface TrainModelDialogProps {
 	modelIdInput?: number
 	text?: string
@@ -47,7 +50,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 
 	const getRegression = async (datasetId: number) => {
 		try {
-			const response = await fetch(`http://localhost:5000/api/datasets/${datasetId}`, {
+			const response = await fetch(`${API_URL}/datasets/${datasetId}`, {
 				method: "GET",
 				credentials: "include",
 				headers: {
@@ -101,7 +104,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 				}
 				
 				// Update model params via PUT request
-				const updateResponse = await fetch(`http://localhost:5000/api/models/${model.id}`, {
+				const updateResponse = await fetch(`${API_URL}/models/${model.id}`, {
 					method: "PUT",
 					credentials: "include",
 					headers: {
@@ -125,7 +128,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			setShowVisualizer(true)
 			
 			console.log("[TrainDialog] Creating WebSocket connection for MLP training")
-			const socket = io("http://localhost:5000", {
+			const socket = io(SOCKET_URL, {
 				transports: ['websocket', 'polling']
 			})
 			
@@ -176,7 +179,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 			if (Object.keys(hyperparameters).length > 0) {
 				body.hyperparams = hyperparameters
 			}
-			const response = await fetch(`http://localhost:5000/api/train/${model.id}`, {
+			const response = await fetch(`${API_URL}/train/${model.id}`, {
 				method: "POST",
 				credentials: "include",
 				headers: {
@@ -243,7 +246,7 @@ export function TrainModelDialog({ modelIdInput, text, onTrainSuccess }: TrainMo
 
 	const getModel = async () => {
 		try {
-			const response = await fetch(`http://localhost:5000/api/models/${modelIdInput}`, {
+			const response = await fetch(`${API_URL}/models/${modelIdInput}`, {
 				method: "GET",
 				credentials: "include",
 				headers: {

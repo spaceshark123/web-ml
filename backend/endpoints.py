@@ -26,6 +26,7 @@ import warnings
 from flask_socketio import SocketIO, emit
 import threading
 from flask_cors import CORS
+import os
 
 from models import User, Dataset, ModelEntry
 from ml.wrapper import ModelWrapper
@@ -33,7 +34,8 @@ from extensions import db, login_manager, socketio
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'devsecret'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB max uploads
 
@@ -55,9 +57,9 @@ login_manager.login_view = 'login'
 login_manager.session_protection = "strong"
 
 # Configure CORS
-app.config['CORS_ORIGINS'] = ['http://localhost:5173']
+app.config['CORS_ORIGINS'] = "*"
 CORS(app,
-     resources={r"/api/*": {"origins": ["http://localhost:5173"]}},
+     resources={r"/api/*": {"origins": "*"}},
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization"],
      expose_headers=["Content-Range", "X-Content-Range"])

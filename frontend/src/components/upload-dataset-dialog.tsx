@@ -20,6 +20,8 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+
 interface UploadDatasetDialogProps {
   text?: string
   onUploadSuccess?: () => void
@@ -139,7 +141,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
     try {
       const controller = new AbortController()
       uploadAbortCtrlRef.current = controller
-      const response = await fetch("http://localhost:5000/api/upload", {
+      const response = await fetch(`${API_URL}/upload`, {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -173,7 +175,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         setDatasetId(data.dataset.id)
         // fetch columns from backend (more accurate than client-side header read)
         try {
-          const colsRes = await fetch(`http://localhost:5000/api/datasets/${data.dataset.id}/columns`, {
+          const colsRes = await fetch(`${API_URL}/datasets/${data.dataset.id}/columns`, {
             method: 'GET',
             credentials: 'include',
           })
@@ -199,7 +201,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
 
   const performDeleteDataset = async (id: number) => {
     try {
-      await fetch(`http://localhost:5000/api/datasets/${id}`, {
+      await fetch(`${API_URL}/datasets/${id}`, {
         method: 'DELETE',
         credentials: 'include',
       })
@@ -249,7 +251,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         if (datasetId) {
           try {
             // fetch with keepalive; best-effort
-            fetch(`http://localhost:5000/api/datasets/${datasetId}`, { method: 'DELETE', credentials: 'include', keepalive: true })
+            fetch(`${API_URL}/datasets/${datasetId}`, { method: 'DELETE', credentials: 'include', keepalive: true })
           } catch (_) { }
         }
         e.preventDefault()
@@ -291,7 +293,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         return
       }
 
-      const res = await fetch(`http://localhost:5000/api/datasets/${datasetId}/config`, {
+      const res = await fetch(`${API_URL}/datasets/${datasetId}/config`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -311,7 +313,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
         throw new Error(msg)
       }
       setPreprocessing(true)
-      const preprocessingRes = await fetch(`http://localhost:5000/api/datasets/${datasetId}/preprocess`, {
+      const preprocessingRes = await fetch(`${API_URL}/datasets/${datasetId}/preprocess`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -357,7 +359,7 @@ export function UploadDatasetDialog({ text, onUploadSuccess }: UploadDatasetDial
       // if a dataset was created on the server but user didn't finish/save specs, delete it
       if (datasetId) {
         try {
-          await fetch(`http://localhost:5000/api/datasets/${datasetId}`, {
+          await fetch(`${API_URL}/datasets/${datasetId}`, {
             method: 'DELETE',
             credentials: 'include',
           })

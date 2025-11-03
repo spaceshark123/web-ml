@@ -8,6 +8,9 @@ import { AlertCircle, Loader2, CheckCircle } from "lucide-react"
 import io from "socket.io-client"
 import DownloadableChart from "./downloadable-chart"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000"
+
 export interface TrainingMetrics {
   epoch: number
   loss: number
@@ -398,7 +401,7 @@ export function TrainingVisualizer({ modelId, isVisible, regression, onComplete,
     setIsTraining(true)
     setConnectionStatus("connecting")
 
-    const socket = io("http://localhost:5000", {
+    const socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling']
     })
 

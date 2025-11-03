@@ -8,6 +8,8 @@ import { useEffect, useState } from "react"
 import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import { API_BASE_URL } from "@/constants"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+
 export interface Dataset {
 	id: number
 	name: string
@@ -45,7 +47,7 @@ export function DatasetsContent() {
 		setLoading(true)
 		setError(null)
 		try {
-			const response = await fetch("http://localhost:5000/api/datasets", {
+			const response = await fetch(`${API_URL}/datasets`, {
 				method: 'GET',
 				credentials: 'include',
 				headers: {
@@ -74,7 +76,7 @@ export function DatasetsContent() {
 
 	const downloadDataset = async (datasetId: number, datasetName: string) => {
 		try {
-			const response = await fetch(`http://localhost:5000/api/download/${datasetId}`, {
+			const response = await fetch(`${API_URL}/download/${datasetId}`, {
 				method: 'GET',
 				credentials: 'include',
 			})

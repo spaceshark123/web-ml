@@ -8,6 +8,8 @@ import { CreateModelDialog } from "./create-model-dialog"
 import { API_BASE_URL } from "@/constants"
 import { ModelCard } from "./model-card"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+
 export interface Model {
 	id: number
 	name: string
@@ -46,7 +48,7 @@ export function ModelsContent() {
 		setLoading(true)
 		setError(null)
 		try {
-			const response = await fetch("http://localhost:5000/api/models", {
+			const response = await fetch(`${API_URL}/models`, {
 				method: 'GET',
 				credentials: 'include',
 				headers: {
@@ -75,7 +77,7 @@ export function ModelsContent() {
 
 	const downloadModel = async (modelId: number, modelName: string) => {
 		try {
-			const response = await fetch(`http://localhost:5000/api/models/${modelId}/download`, {
+			const response = await fetch(`${API_URL}/models/${modelId}/download`, {
 				method: 'GET',
 				credentials: 'include',
 			})
