@@ -11,6 +11,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+
 interface EditMetadataDialogProps {
   datasetId: number
   currentDataSource: string
@@ -45,7 +47,7 @@ export function EditMetadataDialog({
     setError("")
 
     try {
-      const response = await fetch(`http://localhost:5000/api/datasets/${datasetId}`, {
+      const response = await fetch(`${API_URL}/datasets/${datasetId}`, {
         method: "PATCH",
         credentials: "include",
         headers: {

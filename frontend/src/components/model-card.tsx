@@ -10,6 +10,8 @@ import { useEffect, useState } from "react"
 import { TrainModelDialog } from "./train-model-dialog"
 import { useNavigate } from "react-router-dom"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+
 interface ModelCardProps {
 	id: number
 	name: string
@@ -37,7 +39,7 @@ interface ModelCardProps {
 export function ModelCard({ id, name, description, model_type, created_at, datasetId, params, metrics, error, onDelete, onDownload, refreshModelsList }: ModelCardProps) {
 	const navigate = useNavigate()
 	const datasetNameFromID = async (id: number) => {
-		name = await fetch(`http://localhost:5000/api/datasets/${id}`, {
+		name = await fetch(`${API_URL}/datasets/${id}`, {
 			method: 'GET',
 			credentials: 'include',
 			headers: {

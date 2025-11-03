@@ -1,5 +1,7 @@
 from endpoints import app, socketio
+from os import getenv
 
 # ===== Main =====
 if __name__ == '__main__':
-    socketio.run(app, port=5000, debug=True, allow_unsafe_werkzeug=True)
+    port = int(getenv("PORT", 5050))
+    socketio.run(app, port=port, debug=True, allow_unsafe_werkzeug=True)

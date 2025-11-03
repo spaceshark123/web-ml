@@ -9,6 +9,8 @@ import { UploadDatasetDialog } from "./upload-dataset-dialog"
 import type { Model } from "./models-content"
 import type { Dataset } from "./datasets-content"
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+
 // Import experiment history helpers
 const EXPERIMENT_HISTORY_KEY = 'web-ml-experiment-history'
 const COMPARISONS_COUNT_KEY = 'web-ml-comparisons-count'
@@ -51,7 +53,7 @@ export function DashboardContent() {
 
 	const fetchDatasets = async () => {
 		try {
-			const res = await fetch("http://localhost:5000/api/datasets", {
+			const res = await fetch(`${API_URL}/datasets`, {
 				method: "GET",
 				credentials: "include",
 				headers: {
@@ -74,7 +76,7 @@ export function DashboardContent() {
 
 	const fetchModels = async () => {
 		try {
-			const res = await fetch("http://localhost:5000/api/models", {
+			const res = await fetch(`${API_URL}/models`, {
 				method: "GET",
 				credentials: "include",
 				headers: {
