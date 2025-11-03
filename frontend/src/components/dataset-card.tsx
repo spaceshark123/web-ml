@@ -8,6 +8,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card"
+import { useNavigate } from "react-router-dom"
 
 interface DatasetCardProps {
 	id: number
@@ -35,6 +36,8 @@ interface DatasetCardProps {
 }
 
 export function DatasetCard({ id, name, description, uploadDate, fileSize, rows, regression, input_features, target_feature, features, models, data_source, license_info, error, imbalance, onDelete, onDownload, onMetadataUpdate }: DatasetCardProps) {
+	const navigate = useNavigate();
+
 	return (
 		<Card className="p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
 			{/* Header */}
@@ -135,7 +138,7 @@ export function DatasetCard({ id, name, description, uploadDate, fileSize, rows,
 								// Handle successful model creation
 							}}
 						/>
-						<Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">Train Model</Button>
+						<Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={() => navigate(`/experiments?dataset_id=${id}`)}>Visualize</Button>
 					</div>
 					<Button variant="outline" className="w-full border-gray-300 text-gray-700 hover:bg-gray-100 bg-transparent cursor-pointer" onClick={onDownload}>
 						Download
